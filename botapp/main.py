@@ -234,7 +234,14 @@ def main():
         if missing:
             raise RuntimeError(
                 f"missing table(s): {', '.join(sorted(missing))}.\n"
-                "Run the web API's migrations first (flask db upgrade), then the bot's:\n"
+                "The web app's tables must exist first, then run the bot's migrations:\n"
+                "  alembic -c migrations/alembic.ini upgrade head")
+        defect_cols = {c['name'] for c in inspect(bot_db.get_engine()).get_columns('defects')}
+        absent = {'bot_reporter_id', 'reporter_label'} - defect_cols
+        if absent:
+            raise RuntimeError(
+                f"the defects table is missing column(s): {', '.join(sorted(absent))}.\n"
+                "The database is behind this version of the bot. Run its migrations:\n"
                 "  alembic -c migrations/alembic.ini upgrade head")
         try:
             n = notifications.baseline()

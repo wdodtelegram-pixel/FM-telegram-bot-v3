@@ -4,11 +4,12 @@ A standalone Telegram application for **building defects** and **routine mainten
 part of the web app: no Flask, nothing imported from `Backend/`, no sign-in through the website. The
 only thing it shares with the platform is the PostgreSQL database.
 
-> **This repository is the bot only.** The PostgreSQL schema it shares (`users`, `buildings`,
-> `defects`, `defect_comments`, `maintenance_jobs`) is created by the platform's web API in the BMS
-> repository (`wdodtelegram-pixel/BMS`, Alembic head `f6a7b8c9d0e1` or later, which makes
-> `defects.reporter_id` nullable and adds `bot_reporter_id` / `reporter_label`). Run those
-> migrations on the database first. This repo adds only its own `bot_*` tables.
+> **This repository is a separate application.** It needs a PostgreSQL database that already
+> holds the shared tables (`users`, `buildings`, `defects`, `defect_comments`, `maintenance_jobs`),
+> normally the one your web app uses. It does **not** depend on any particular web-app migration:
+> its own migrations add what it needs, including three small changes to `defects`
+> (`reporter_id` nullable, `bot_reporter_id`, `reporter_label`; migration `0004`). Those
+> changes are checked before they are made, so they are safe if the web app has already made them.
 
 Contents: [Capabilities](#capabilities) · [Architecture](#system-architecture) ·
 [Access and mapped members](#access-who-may-use-the-bot) · [Demos](#demos-what-it-looks-like-in-telegram) ·
@@ -115,7 +116,7 @@ tools/render_demos.py     regenerates the demos below from the real handlers
 
 `defects.reporter_id` is nullable and a defect raised by an unmapped member carries
 `bot_reporter_id` + `reporter_label` instead (a CHECK guarantees one reporter is always recorded).
-`bot_reporter_id` has no foreign key, so the two applications migrate independently.
+`bot_reporter_id` has no foreign key, and migration `0004` makes those changes itself (idempotently), so the bot never waits for the web app to ship a migration.
 
 **The contract is enforced by tests**: `tests/test_contracts.py` fails if a column or enum label the
 bot maps disappears from the database, if the vendored catalog drifts from `Backend/fm/catalog.py`,
@@ -843,14 +844,13 @@ you ▸ hello?
 
 ## Setup
 
-Prerequisites: Python 3.11+, PostgreSQL that already carries the **web API's migrations**
-(`cd Backend && flask db upgrade`), and a bot token from @BotFather (`/newbot`).
+Prerequisites: Python 3.11+, a PostgreSQL database that already holds the web app's tables, and a bot token from @BotFather (`/newbot`).
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env                     # fill in TELEGRAM_BOT_TOKEN and DATABASE_URL
-alembic -c migrations/alembic.ini upgrade head          # the bot's own tables
+alembic -c migrations/alembic.ini upgrade head          # the bot's own tables, plus the 3 defects changes (0004)
 python -m botapp.admin add <YOUR_TELEGRAM_ID> "Your Name"
 python -m botapp.main
 ```
@@ -881,7 +881,7 @@ Run as `python -m botapp.admin <command>` from the repository root.
 ## Tests
 
 ```bash
-createdb bdms_test   # then run the BMS repo's `flask db upgrade` against it
+createdb bdms_test   # then load the web app's tables into it (the web app's `flask db upgrade`)
 DATABASE_URL=postgresql:///bdms_test alembic -c migrations/alembic.ini upgrade head
 TEST_DATABASE_URL=postgresql:///bdms_test pytest
 ```
@@ -893,7 +893,8 @@ Each test runs in a rolled-back transaction. They need PostgreSQL (native enums)
 |---|---|
 | "CANNOT START - TOKEN PROBLEM" | Token missing or mis-copied |
 | "TELEGRAM REJECTED YOUR TOKEN" | Revoked or wrong; get it from @BotFather → `/mybots` |
-| "CANNOT START - DATABASE PROBLEM … missing table(s)" | Run the API's `flask db upgrade`, then the bot's alembic |
+| "CANNOT START - DATABASE PROBLEM … missing table(s)" | The web app's tables are missing; set them up, then run the bot's alembic |
+| "… defects table is missing column(s): bot_reporter_id" | The bot's migrations have not been run: `alembic -c migrations/alembic.ini upgrade head` |
 | Someone sees "not authorised" | They are not in `bot_members`; `add` their ID |
 | `/myjobs` empty for someone with jobs | They are not mapped to a web account (`link-user`) |
 | Two bots fighting | One process per token only |
