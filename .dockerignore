@@ -1,4 +1,8 @@
 .env
-__pycache__
+.git
+**/__pycache__
 .pytest_cache
 tests
+tools
+web/node_modules
+web/build

@@ -18,9 +18,14 @@ from botapp.main import build_application
 class FakeBot(ExtBot):
     def __init__(self):
         super().__init__('123456789:' + 'A' * 35)
+        self._menus = []                    # every command list registered
         self._log = []                      # [(chat_id, text, markup_text, edited)]
         self._bot_user = User(id=1, first_name='FMBot', is_bot=True, username='fm_test_bot')
         self._loop = asyncio.new_event_loop()   # one loop for the whole conversation
+
+    @property
+    def menus(self):
+        return self._menus
 
     @property
     def log(self):
@@ -33,10 +38,10 @@ class FakeBot(ExtBot):
         return None
 
     async def send_message(self, chat_id, text, *a, reply_markup=None, **k):
-        self.log.append((chat_id, text, str(reply_markup) if reply_markup else '', False))
+        self.log.append((chat_id, text, str(reply_markup) if reply_markup else '', False, reply_markup))
 
     async def edit_message_text(self, text, chat_id=None, message_id=None, *a, reply_markup=None, **k):
-        self.log.append((chat_id, text, str(reply_markup) if reply_markup else '', True))
+        self.log.append((chat_id, text, str(reply_markup) if reply_markup else '', True, reply_markup))
 
     async def answer_callback_query(self, *a, **k):
         return True
@@ -44,7 +49,8 @@ class FakeBot(ExtBot):
     async def delete_message(self, *a, **k):
         return True
 
-    async def set_my_commands(self, *a, **k):
+    async def set_my_commands(self, commands, *a, **k):
+        self._menus.append([c.command for c in commands])
         return True
 
 

@@ -32,7 +32,7 @@ from telegram.ext import (
 
 from botapp.auth import require_member
 from botapp.ui import reply
-from core import config, equipment
+from core import config, equipment, similarity
 from core.db import run_db
 from core.fm import catalog, formatters
 from core.services import maintenance_service, report_service
@@ -284,12 +284,8 @@ async def report_location(update, context):
 
 def _find_matches(d):
     found = report_service.suggest(d['type_id'], d['when'], d['location'], d['issue'])
-    out = []
-    for store in ('scheduled', 'unscheduled'):
-        for m in found[store]:
-            out.append({'store': m.store, 'id': m.record_id, 'label': m.label,
-                        'score': m.score, 'reasons': m.reasons})
-    return out
+    return [{'store': m.store, 'id': m.record_id, 'label': m.label, 'score': m.score, 'reasons': m.reasons}
+            for m in similarity.rank(found)]
 
 
 async def report_issue(update, context):

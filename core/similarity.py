@@ -157,3 +157,18 @@ def find_matches(equipment_type_id, when, location, issue):
     key = lambda m: (-m.score, m.record_id)
     return {'scheduled': sorted(scheduled, key=key)[:MAX_MATCHES],
             'unscheduled': sorted(unscheduled, key=key)[:MAX_MATCHES]}
+
+
+SCHEDULED_TIE_BONUS = 5     # a scheduled item wins a near tie: "if it is scheduled, it is scheduled"
+MAX_SUGGESTIONS = 5
+
+
+def rank(found, limit=MAX_SUGGESTIONS):
+    """
+    One list, most similar first, across both stores. A scheduled item is
+    preferred only when it is about as similar as an unscheduled one (within
+    SCHEDULED_TIE_BONUS points); a clearly better unscheduled match comes first.
+    """
+    merged = found['scheduled'] + found['unscheduled']
+    key = lambda m: (-(m.score + (SCHEDULED_TIE_BONUS if m.store == 'scheduled' else 0)), m.record_id)
+    return sorted(merged, key=key)[:limit]

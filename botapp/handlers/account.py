@@ -12,7 +12,7 @@ from telegram.constants import ParseMode
 from core.actor import Actor
 from botapp.auth import require_member, resolve_actor_fields, state_for_chat
 from core.db import run_db
-from core.fm import formatters
+from core.fm import catalog, formatters
 from botapp.ui import category_keyboard, reply, request_access_keyboard
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,14 @@ async def unknown_command(update, context):
     """
     if update.message is None:
         return
+    # An equipment type added after the bot started has no command handler of its
+    # own; /<key> still works.
+    text = (update.message.text or '').strip()
+    if text.startswith('/'):
+        key = text[1:].split()[0].split('@')[0].lower()
+        if key in catalog.CATEGORIES:
+            from botapp.handlers import browse
+            return await browse.category_command(update, context, key=key)
     await update.message.reply_text(
         "🤔 I didn't recognise that. Send /start to see what I can do."
     )

@@ -1,0 +1,74 @@
+# The whole system, one command:
+#
+#   cp .env.example .env        # fill in TELEGRAM_BOT_TOKEN and SECRET_KEY
+#   docker compose up --build
+#
+#   website   http://localhost:3000      (master control sign-in)
+#   bot       Telegram (long polling, no inbound port)
+#
+# Three deployables share ONE database and one set of migrations (migrations/):
+#   bot  -> core/ + botapp/      api -> core/ + api/      web -> static site behind nginx
+# The `migrate` service runs the migrations once; everything else waits for it.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: fm_control
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fm_control"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  migrate:
+    build: .
+    command: ["alembic", "-c", "migrations/alembic.ini", "upgrade", "head"]
+    environment:
+      RUN_MIGRATIONS: "0"
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/fm_control
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      RUN_MIGRATIONS: "0"
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/fm_control
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env (a long random value)}
+      TZ: ${TZ:-UTC}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  web:
+    build: ./web
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  bot:
+    build: .
+    environment:
+      RUN_MIGRATIONS: "0"
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/fm_control
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env (from @BotFather)}
+      TZ: ${TZ:-UTC}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pgdata:

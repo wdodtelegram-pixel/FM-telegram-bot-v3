@@ -129,3 +129,16 @@ def test_text_similarity_basics():
     assert similarity.text_similarity('', 'anything') == 0
     assert similarity.text_similarity('chiller filters', 'Chiller filter replacement') > 0.5
     assert similarity.text_similarity('water leak', 'lift stuck') < 0.3
+
+
+def test_rank_puts_a_clearly_better_unscheduled_match_first_but_scheduled_wins_a_near_tie():
+    S, U = similarity.Match, similarity.Match
+    found = {'scheduled': [S('scheduled', 1, 'job', 63, [])],
+             'unscheduled': [U('unscheduled', 2, 'report', 92, [])]}
+    assert [m.store for m in similarity.rank(found)] == ['unscheduled', 'scheduled']
+    tie = {'scheduled': [S('scheduled', 1, 'job', 70, [])], 'unscheduled': [U('unscheduled', 2, 'report', 73, [])]}
+    assert [m.store for m in similarity.rank(tie)] == ['scheduled', 'unscheduled']
+    assert similarity.rank({'scheduled': [], 'unscheduled': []}) == []
+    many = {'scheduled': [S('scheduled', i, 'j', 80 - i, []) for i in range(1, 4)],
+            'unscheduled': [U('unscheduled', 10 + i, 'r', 60 - i, []) for i in range(1, 4)]}
+    assert len(similarity.rank(many)) == similarity.MAX_SUGGESTIONS

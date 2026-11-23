@@ -1,3 +1,4 @@
+# The Telegram bot (and the migration / admin tools). No web framework inside.
 FROM python:3.11-slim
 
 # psycopg2-binary ships wheels, but libpq is still needed at runtime.
@@ -8,9 +9,11 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
+COPY core ./core
+COPY botapp ./botapp
+COPY migrations ./migrations
+COPY docker/entrypoint.sh /entrypoint.sh
 
 ENV PYTHONUNBUFFERED=1
-
-# Bot tables first (idempotent), then the bot itself.
-CMD ["sh", "-c", "alembic -c migrations/alembic.ini upgrade head && python -m botapp.main"]
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["python", "-m", "botapp.main"]
