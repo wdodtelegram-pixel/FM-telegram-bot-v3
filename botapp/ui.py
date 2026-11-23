@@ -52,6 +52,11 @@ def category_keyboard():
         for key, meta in catalog.CATEGORIES.items()
     ]
     rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    # The two guided flows lead every screen, so nobody needs to know a command.
+    rows.insert(0, [
+        InlineKeyboardButton("📅 Event query", callback_data="menu:events"),
+        InlineKeyboardButton("🛠 Report a defect", callback_data="menu:report"),
+    ])
     rows.append([
         InlineKeyboardButton("⏳ Outstanding", callback_data="pending"),
         InlineKeyboardButton("🔄 Refresh", callback_data="refresh"),

@@ -16,7 +16,7 @@ import datetime
 
 from sqlalchemy import func
 
-from core import similarity
+from core import config, similarity
 from core.db import db
 from core.models import Building, Defect, DefectComment, EquipmentType, MaintenanceJob
 
@@ -42,7 +42,7 @@ def _clean(equipment_type_id, when, location, issue):
         raise ReportError('Please describe the issue in a few words')
     if when is None:
         raise ReportError('A date and time is needed')
-    if when > datetime.datetime.utcnow() + MAX_FUTURE:
+    if when > config.now() + MAX_FUTURE:
         raise ReportError('That date is in the future')
     return etype, location, issue
 

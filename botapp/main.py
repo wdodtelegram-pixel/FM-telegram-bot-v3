@@ -37,7 +37,7 @@ from botapp import notifications
 from core import db as bot_db
 from core.fm import catalog
 from botapp.handlers import access as access_handlers
-from botapp.handlers import account, browse, defects
+from botapp.handlers import account, browse, defects, guided
 
 # httpx is silenced because it logs every single Telegram poll, which floods
 # the log and hides anything useful.
@@ -151,7 +151,8 @@ async def post_init(application: Application):
         BotCommand("myjobs", "Maintenance assigned to you"),
         BotCommand("defects", "Open building defects"),
         BotCommand("mydefects", "Defects assigned to you"),
-        BotCommand("report", "Report a new defect"),
+        BotCommand("report", "Report a defect (guided)"),
+        BotCommand("events", "Event query: what is scheduled when"),
         BotCommand("access", "Master control: requests and members"),
         BotCommand("whoami", "Show who you are signed in as"),
         BotCommand("refresh", "Reload the latest data"),
@@ -162,7 +163,7 @@ async def post_init(application: Application):
     logger.info("Bot commands registered with Telegram.")
 
 
-def build_application(token):
+def build_application(token, bot=None):
     """
     Wire up every handler.
 
@@ -171,10 +172,12 @@ def build_application(token):
     it shares message types with, and the catch-all goes last -- registered
     earlier it would swallow every real command.
     """
-    application = ApplicationBuilder().token(token).post_init(post_init).build()
+    builder = ApplicationBuilder().post_init(post_init)
+    application = (builder.bot(bot) if bot is not None else builder.token(token)).build()
 
     # --- the /report conversation must come first ---------------------------
-    application.add_handler(defects.build_report_conversation())
+    application.add_handler(guided.build_report_conversation())
+    application.add_handler(guided.build_events_conversation())
 
     # --- account -----------------------------------------------------------
     application.add_handler(CommandHandler(["start", "help"], account.start_command))

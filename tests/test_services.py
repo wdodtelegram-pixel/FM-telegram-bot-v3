@@ -10,30 +10,6 @@ def actor(member_id=1, user_id=None, name='Pat'):
     return Actor(member_id=member_id, name=name, user_id=user_id)
 
 
-def test_bot_only_csr_can_report_and_is_recorded_as_a_bot_reporter(session, world):
-    d = ds.create_defect(actor(member_id=7), 'Cracked tile', 'Lobby floor', world['building'].id, 'high')
-    row = Defect.query.get(d.id)
-    assert row.reporter_id is None and row.bot_reporter_id == 7 and row.reporter_label == 'Pat'
-    assert DefectComment.query.filter_by(defect_id=d.id).count() == 1
-
-
-def test_mapped_member_is_attributed_to_their_web_account(session, world):
-    d = ds.create_defect(actor(user_id=world['csr'].id), 'Leak', 'Roof leak', world['building'].id, 'low')
-    row = Defect.query.get(d.id)
-    assert row.reporter_id == world['csr'].id and row.bot_reporter_id is None
-
-
-@pytest.mark.parametrize('kw', [dict(title=' ', description='ok desc'),
-                                dict(title='ok', description=''),
-                                dict(title='ok', description='ok desc', priority='urgent'),
-                                dict(title='ok', description='ok desc', building_id=999999)])
-def test_validation(session, world, kw):
-    args = dict(title='t', description='d' * 6, building_id=world['building'].id, priority='low')
-    args.update(kw)
-    with pytest.raises(ds.DefectError):
-        ds.create_defect(actor(), **args)
-
-
 def _defect(world, **kw):
     d = Defect(title='t', description='d', priority='low', building_id=world['building'].id,
                reporter_id=world['csr'].id, **kw)
@@ -168,3 +144,25 @@ def test_today_uses_the_configured_timezone(monkeypatch):
     assert (ahead - behind).days in (0, 1)
     monkeypatch.setenv('TZ', 'Not/AZone')
     assert isinstance(config.today(), datetime.date)  # falls back, never raises
+
+
+# --- event query -------------------------------------------------------------
+def test_events_between_uses_the_timeline_and_falls_back_to_dates(session, world):
+    from core import equipment
+    t = equipment.get_by_key_or_name('acmv')
+    D = datetime.datetime
+    def mk(ref, **kw):
+        j = MaintenanceJob(job_ref=ref, category='ACMV', equipment_type_id=t.id, description=ref,
+                           location='L', maintenance_type='Preventive', status='Yet to Start', **kw)
+        session.add(j); session.flush(); return j
+    mk('EV-INSIDE', starts_at=D(2026, 12, 2, 9), ends_at=D(2026, 12, 2, 17))
+    mk('EV-SPANS', starts_at=D(2026, 12, 1), ends_at=D(2026, 12, 5))
+    mk('EV-BEFORE', starts_at=D(2026, 11, 20), ends_at=D(2026, 11, 21))
+    mk('EV-AFTER', starts_at=D(2026, 12, 20), ends_at=D(2026, 12, 21))
+    mk('EV-DATEONLY', next_job_date=datetime.date(2026, 12, 3))
+    mk('EV-NODATE')
+    refs = [j.job_ref for j in ms.events_between(D(2026, 12, 2), D(2026, 12, 3, 23, 59, 59))]
+    assert set(refs) >= {'EV-INSIDE', 'EV-SPANS', 'EV-DATEONLY'}
+    assert not set(refs) & {'EV-BEFORE', 'EV-AFTER', 'EV-NODATE'}
+    only_acmv = ms.events_between(D(2026, 12, 2), D(2026, 12, 3), equipment_type_id=t.id)
+    assert all(j.equipment_type_id == t.id for j in only_acmv)

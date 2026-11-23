@@ -94,9 +94,12 @@ def test_choice_new_creates_a_fresh_unscheduled_report(session, acmv):
     assert d.specific_equipment == 'Cooling tower 2' and d.maintenance_job_id is None and d.merged_into_id is None
 
 
-def test_known_building_in_the_location_is_linked(session, acmv, world):
-    res = rs.record_report(actor(), acmv.id, NOW, 'Tower A, roof plant', 'Fan belt squealing loudly')
-    assert Defect.query.get(res['defect_id']).building_id == world['building'].id
+def test_known_building_in_the_location_is_linked(session, acmv):
+    from core.models import Building
+    b = Building(name='Zephyr Annexe', address='1 Test Rd')   # unique: a seeded database has "Tower A" too
+    session.add(b); session.flush()
+    res = rs.record_report(actor(), acmv.id, NOW, 'Zephyr Annexe, roof plant', 'Fan belt squealing loudly')
+    assert Defect.query.get(res['defect_id']).building_id == b.id
 
 
 @pytest.mark.parametrize('kw,msg', [

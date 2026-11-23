@@ -200,3 +200,32 @@ def overdue_entries(today):
         .all()
     )
     return [(j.estimated_completion, 'overdue', j) for j in jobs]
+
+
+def events_between(start, end, equipment_type_id=None):
+    """
+    Scheduled items (maintenance and events) that overlap [start, end], soonest first.
+
+    Uses the start-to-end timeline; an item with no timeline falls back to its
+    next-job / due date. Completed items are included: a query for "yesterday"
+    should still show what was done.
+    """
+    day_start, day_end = start.date(), end.date()
+    has_timeline = or_(MaintenanceJob.starts_at.isnot(None), MaintenanceJob.ends_at.isnot(None))
+    timeline_overlap = (
+        func.coalesce(MaintenanceJob.starts_at, MaintenanceJob.ends_at) <= end,
+        func.coalesce(MaintenanceJob.ends_at, MaintenanceJob.starts_at) >= start,
+    )
+    dated_only = (
+        ~has_timeline,
+        func.coalesce(MaintenanceJob.next_job_date, MaintenanceJob.estimated_completion) >= day_start,
+        func.coalesce(MaintenanceJob.next_job_date, MaintenanceJob.estimated_completion) <= day_end,
+    )
+    from sqlalchemy import and_
+    query = MaintenanceJob.query.filter(or_(and_(has_timeline, *timeline_overlap), and_(*dated_only)))
+    if equipment_type_id:
+        query = query.filter(MaintenanceJob.equipment_type_id == equipment_type_id)
+    return query.order_by(
+        func.coalesce(MaintenanceJob.starts_at, MaintenanceJob.ends_at,
+                      MaintenanceJob.next_job_date, MaintenanceJob.estimated_completion).asc(),
+        MaintenanceJob.job_ref.asc()).all()

@@ -6,6 +6,7 @@ exactly three settings. No SECRET_KEY: it signs nothing, because sign-in is by
 the allowlist (bot_members) rather than a token minted by the web app.
 """
 
+import datetime
 import os
 
 from dotenv import load_dotenv
@@ -43,3 +44,16 @@ def today():
         return datetime.datetime.now(ZoneInfo(timezone())).date()
     except Exception:
         return datetime.datetime.utcnow().date()
+
+
+def now():
+    """The current local date and time in the configured timezone, naive (as the data is stored)."""
+    return datetime.datetime.now(_zone()).replace(tzinfo=None)
+
+
+def _zone():
+    from zoneinfo import ZoneInfo
+    try:
+        return ZoneInfo(timezone())
+    except Exception:
+        return datetime.timezone.utc
