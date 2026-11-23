@@ -10,6 +10,7 @@ Administration from the command line. This is how the allowlist is managed.
     python -m botapp.admin remove CHAT_ID
     python -m botapp.admin members
     python -m botapp.admin link-user CHAT_ID USER_ID     # or --clear
+    python -m botapp.admin web-login CHAT_ID EMAIL       # give a master control member a website login
     python -m botapp.admin import-csv FILE [--dry-run]   # load scheduled items/events
     python -m botapp.admin types                         # list equipment types
     python -m botapp.admin add-type KEY "Name" [--emoji X] [--blurb T]
@@ -26,8 +27,10 @@ import argparse
 import datetime
 import sys
 
+from sqlalchemy import func
+
 from core import db as dbmod
-from core import access, equipment, importer
+from core import access, equipment, importer, passwords
 from core.db import Session, db
 from core.models import TIERS, BotMember, User
 
@@ -59,6 +62,39 @@ def remove_member(chat_id):
     db.session.delete(member)
     db.session.commit()
     return True
+
+
+def create_web_login(chat_id, email, password, reset=False):
+    """
+    Give an approved master control member a website login (a row in `users`).
+    Returns 'created' | 'linked' | 'reset'. An existing user is linked; its
+    password changes only with reset=True.
+    """
+    member = access.by_chat(chat_id)
+    if member is None or member.status != 'approved' or member.tier != 'master_control':
+        raise AdminError(f'{chat_id} is not an approved master control member')
+    email = (email or '').strip().lower()
+    if '@' not in email:
+        raise AdminError('Give a valid email address')
+    user = User.query.filter(func.lower(User.email) == email).first()
+    if user is None:
+        if len(password or '') < passwords.MIN_LENGTH:
+            raise AdminError(f'The password must be at least {passwords.MIN_LENGTH} characters')
+        user = User(name=member.display_name, email=email, role='admin',
+                    password_hash=passwords.hash_password(password))
+        db.session.add(user)
+        db.session.flush()
+        outcome = 'created'
+    elif reset:
+        if len(password or '') < passwords.MIN_LENGTH:
+            raise AdminError(f'The password must be at least {passwords.MIN_LENGTH} characters')
+        user.password_hash = passwords.hash_password(password)
+        outcome = 'reset'
+    else:
+        outcome = 'linked'
+    member.user_id = user.id
+    db.session.commit()
+    return outcome
 
 
 def link_user(chat_id, web_user):
@@ -93,6 +129,8 @@ def main(argv=None):
     p = sub.add_parser('edit-type'); p.add_argument('key'); p.add_argument('--name')
     p.add_argument('--emoji'); p.add_argument('--blurb')
     g = p.add_mutually_exclusive_group(); g.add_argument('--disable', action='store_true'); g.add_argument('--enable', action='store_true')
+    p = sub.add_parser('web-login'); p.add_argument('chat_id', type=int); p.add_argument('email')
+    p.add_argument('--reset', action='store_true', help='also reset the password of an existing user')
     p = sub.add_parser('link-user'); p.add_argument('chat_id', type=int)
     p.add_argument('user_id', type=int, nargs='?'); p.add_argument('--clear', action='store_true')
 
@@ -126,6 +164,12 @@ def main(argv=None):
             else:
                 access.set_tier(m.id, args.tier)
             print('done (the person is told by the bot within 30 seconds)')
+        elif args.cmd == 'web-login':
+            import getpass
+            pw = getpass.getpass('Password for the website login (not shown): ')
+            if getpass.getpass('Again: ') != pw:
+                raise AdminError('The two passwords did not match')
+            print(f'website login {create_web_login(args.chat_id, args.email, pw, reset=args.reset)}')
         elif args.cmd == 'link-user':
             if args.clear == (args.user_id is not None):
                 parser.error('give a USER_ID, or --clear')

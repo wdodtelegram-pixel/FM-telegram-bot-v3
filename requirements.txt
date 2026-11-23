@@ -1,7 +1,8 @@
-# The bot is its own application: no Flask, no Flask-SQLAlchemy.
+# Shared by the Telegram bot and the website API (core/). No Flask here: the bot never imports it.
 # Pinned so a checkout resolves to the versions this was built and verified against.
 python-telegram-bot[job-queue]==22.8
 SQLAlchemy==2.0.36
 psycopg2-binary==2.9.12
 alembic==1.20.1
 python-dotenv==1.2.3
+bcrypt==5.0.0              # website login hashing (core/passwords.py, admin web-login)
