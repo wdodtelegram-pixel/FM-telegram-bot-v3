@@ -36,6 +36,7 @@ from core import config
 from botapp import notifications
 from core import db as bot_db
 from core.fm import catalog
+from botapp.handlers import access as access_handlers
 from botapp.handlers import account, browse, defects
 
 # httpx is silenced because it logs every single Telegram poll, which floods
@@ -107,7 +108,12 @@ async def button_handler(update, context):
 
     data = query.data or ''
 
-    if data == 'refresh':
+    if data == 'acc:request':
+        await access_handlers.request_callback(update, context)
+    elif data.startswith('acc:'):
+        _, action, member_id = data.split(':', 2)
+        await access_handlers.decision_callback(update, context, action, int(member_id))
+    elif data == 'refresh':
         await browse.refresh_command(update, context)
     elif data == 'pending':
         await browse.pending_command(update, context)
@@ -146,6 +152,7 @@ async def post_init(application: Application):
         BotCommand("defects", "Open building defects"),
         BotCommand("mydefects", "Defects assigned to you"),
         BotCommand("report", "Report a new defect"),
+        BotCommand("access", "Master control: requests and members"),
         BotCommand("whoami", "Show who you are signed in as"),
         BotCommand("refresh", "Reload the latest data"),
         BotCommand("help", "Show the command list"),
@@ -172,6 +179,7 @@ def build_application(token):
     # --- account -----------------------------------------------------------
     application.add_handler(CommandHandler(["start", "help"], account.start_command))
     application.add_handler(CommandHandler("whoami", account.whoami_command))
+    application.add_handler(CommandHandler("access", access_handlers.access_command))
 
     # --- maintenance -------------------------------------------------------
     application.add_handler(CommandHandler("service", browse.service_command))
@@ -198,6 +206,8 @@ def build_application(token):
     if application.job_queue is not None:
         application.job_queue.run_repeating(
             notifications.poll, interval=notifications.POLL_SECONDS, first=10)
+        application.job_queue.run_repeating(
+            notifications.poll_access, interval=notifications.POLL_SECONDS, first=15)
     else:
         logger.warning("JobQueue unavailable (install python-telegram-bot[job-queue]); "
                        "assignment alerts are disabled.")

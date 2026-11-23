@@ -60,13 +60,7 @@ def welcome_message(user=None) -> str:
     ]
 
     if user is None:
-        lines += [
-            "",
-            "🔒 <b>You are not authorised to use this bot.</b>",
-            "",
-            "Ask an administrator to add you, and give them the ID shown by /start.",
-        ]
-        return "\n".join(lines)
+        return access_state_message('none')
 
     lines += [
         f"Signed in as <b>{_esc(user.name)}</b>.",
@@ -95,6 +89,7 @@ def welcome_message(user=None) -> str:
         "/today — what is scheduled today",
         "/overdue — maintenance past its due date",
         "",
+        *(["<b>Master control</b>", "/access — access requests and members", ""] if user.is_master else []),
         "<b>Other</b>",
         "/pending — all maintenance jobs not yet completed",
         "/refresh — reload the latest data",
@@ -368,25 +363,58 @@ def _day_heading(day, today) -> str:
 # Account + errors
 # ---------------------------------------------------------------------------
 def whoami_message(user) -> str:
+    tier = ("master control (Telegram and website)" if user.is_master
+            else "end user (Telegram)")
     return "\n".join([
         "👤 <b>Your membership</b>",
         "",
         f"   Name: {_esc(user.name)}",
-        "   Access: full",
+        f"   Access: {tier}",
         "   Web account: " + (
             f"linked (#{user.user_id}) — /myjobs, /mydefects and assignment alerts work"
             if user.user_id else "not linked — /myjobs and /mydefects will be empty"),
         "",
-        "Access is managed by your administrator.",
+        "Access is managed by master control.",
     ])
 
 
-def not_authorised_message(chat_id) -> str:
-    return (
-        "🔒 <b>You are not authorised to use this bot.</b>\n\n"
-        "Send this ID to an administrator and ask to be added:\n"
-        f"<code>{chat_id}</code>"
-    )
+def access_state_message(state, chat_id=None) -> str:
+    """What a chat that is not approved is told, by where its request stands."""
+    if state == 'pending':
+        return ("⏳ <b>Your request is waiting for approval.</b>\n\n"
+                "Master control has been told. You will get a message here as soon as it is decided. "
+                "You do not need to ask again.")
+    if state == 'denied':
+        return ("🚫 <b>Your access request was declined.</b>\n\n"
+                "Please contact master control if you think this is a mistake.")
+    if state == 'revoked':
+        return ("🚫 <b>Your access has been withdrawn.</b>\n\n"
+                "Please contact master control.")
+    return ("🔒 <b>You do not have access to this bot yet.</b>\n\n"
+            "Tap the button below to ask master control for access. You only need to do this once.")
+
+
+def master_only_message() -> str:
+    return "🔒 <b>Only master control can do that.</b>"
+
+
+def access_request_notice(member) -> str:
+    """Sent to master control when someone asks for access."""
+    who = _esc(member['name']) + (f" (@{_esc(member['username'])})" if member.get('username') else "")
+    return ("🔔 <b>Access request</b>\n\n"
+            f"{who} would like to use the bot.\n"
+            f"Telegram ID: <code>{member['chat_id']}</code>")
+
+
+def access_decision_notice(status) -> str:
+    """Sent to the requester when master control decides (in Telegram or the website)."""
+    if status == 'approved':
+        return "✅ <b>You have been approved.</b>\n\nSend /start to begin."
+    if status == 'denied':
+        return access_state_message('denied')
+    if status == 'revoked':
+        return access_state_message('revoked')
+    return access_state_message('pending')
 
 
 def error_message(exc: Exception) -> str:

@@ -59,6 +59,19 @@ def category_keyboard():
     return InlineKeyboardMarkup(rows)
 
 
+def request_access_keyboard():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🙋 Request access", callback_data="acc:request")]])
+
+
+def access_decision_keyboard(member_id):
+    """Approve / deny buttons shown to master control under a request."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Approve", callback_data=f"acc:ap:{member_id}"),
+         InlineKeyboardButton("⭐ Approve as master", callback_data=f"acc:ma:{member_id}")],
+        [InlineKeyboardButton("❌ Deny", callback_data=f"acc:dn:{member_id}")],
+    ])
+
+
 def buildings_keyboard(buildings):
     """One button per building, for the /report conversation."""
     rows = [

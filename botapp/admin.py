@@ -2,6 +2,11 @@
 Administration from the command line. This is how the allowlist is managed.
 
     python -m botapp.admin add CHAT_ID "Name" [--master] [--web-user USER_ID]
+    python -m botapp.admin requests                      # pending access requests
+    python -m botapp.admin approve CHAT_ID [--master]    # approve a request
+    python -m botapp.admin deny CHAT_ID
+    python -m botapp.admin revoke CHAT_ID
+    python -m botapp.admin set-tier CHAT_ID end_user|master_control
     python -m botapp.admin remove CHAT_ID
     python -m botapp.admin members
     python -m botapp.admin link-user CHAT_ID USER_ID     # or --clear
@@ -22,7 +27,7 @@ import datetime
 import sys
 
 from core import db as dbmod
-from core import equipment, importer
+from core import access, equipment, importer
 from core.db import Session, db
 from core.models import TIERS, BotMember, User
 
@@ -76,6 +81,11 @@ def main(argv=None):
     p.add_argument('--master', action='store_true', help='master control: full access, Telegram and website')
     p = sub.add_parser('remove'); p.add_argument('chat_id', type=int)
     sub.add_parser('members')
+    sub.add_parser('requests')
+    p = sub.add_parser('approve'); p.add_argument('chat_id', type=int); p.add_argument('--master', action='store_true')
+    p = sub.add_parser('deny'); p.add_argument('chat_id', type=int)
+    p = sub.add_parser('revoke'); p.add_argument('chat_id', type=int)
+    p = sub.add_parser('set-tier'); p.add_argument('chat_id', type=int); p.add_argument('tier', choices=TIERS)
     p = sub.add_parser('import-csv'); p.add_argument('file'); p.add_argument('--dry-run', action='store_true')
     sub.add_parser('types')
     p = sub.add_parser('add-type'); p.add_argument('key'); p.add_argument('name')
@@ -96,10 +106,26 @@ def main(argv=None):
             print(f'added {args.name} ({args.chat_id})')
         elif args.cmd == 'remove':
             print('removed' if remove_member(args.chat_id) else 'not on the allowlist')
-        elif args.cmd == 'members':
-            for m in BotMember.query.order_by(BotMember.id):
-                print(f'{m.telegram_chat_id:>14}  {m.display_name:<24} '
+        elif args.cmd in ('members', 'requests'):
+            rows = access.list_members('pending' if args.cmd == 'requests' else None)
+            for m in rows:
+                print(f'{m.telegram_chat_id:>14}  {m.display_name:<24} {m.tier:<15} {m.status:<9} '
                       f'web user {m.user_id or "-"}')
+            if not rows:
+                print('none')
+        elif args.cmd in ('approve', 'deny', 'revoke', 'set-tier'):
+            m = access.by_chat(args.chat_id)
+            if m is None:
+                raise AdminError(f'{args.chat_id} has not asked for access (and is not on the list)')
+            if args.cmd == 'approve':
+                access.approve(m.id, tier='master_control' if args.master else 'end_user')
+            elif args.cmd == 'deny':
+                access.deny(m.id)
+            elif args.cmd == 'revoke':
+                access.revoke(m.id)
+            else:
+                access.set_tier(m.id, args.tier)
+            print('done (the person is told by the bot within 30 seconds)')
         elif args.cmd == 'link-user':
             if args.clear == (args.user_id is not None):
                 parser.error('give a USER_ID, or --clear')
@@ -125,7 +151,7 @@ def main(argv=None):
             equipment.update_type(t.id, name=args.name, blurb=args.blurb, emoji=args.emoji,
                                   active=False if args.disable else (True if args.enable else None))
             print('updated')
-    except (AdminError, equipment.EquipmentError) as exc:
+    except (AdminError, equipment.EquipmentError, access.AccessError) as exc:
         print(f'error: {exc}', file=sys.stderr)
         raise SystemExit(1)
     finally:

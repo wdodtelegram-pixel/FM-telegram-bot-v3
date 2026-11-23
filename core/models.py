@@ -168,6 +168,9 @@ class BotMember(Base):
     requested_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=True)
     decided_by = Column(Integer, ForeignKey('bot_members.id'), nullable=True)
     decided_at = Column(DateTime, nullable=True)
+    # What the requester was last told, and when master control was told of a pending request.
+    notified_status = Column(String(16), nullable=True)
+    masters_notified_at = Column(DateTime, nullable=True)
     joined_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
 
     @property
