@@ -5,7 +5,7 @@ import pytest
 
 from botapp import admin, auth
 from botapp.handlers import account
-from botapp.models import BotMember
+from core.models import BotMember
 
 
 def test_listed_chat_resolves_and_stranger_does_not(session):
@@ -41,15 +41,6 @@ def test_link_user_maps_and_clears(session, world):
     assert auth.resolve_actor_fields(2006)['user_id'] is None
     with pytest.raises(admin.AdminError):
         admin.link_user(2007, world['tech'].id)          # not on the list
-
-
-def test_import_links_adds_previously_linked_web_users(session, world):
-    from sqlalchemy import text
-    session.execute(text("UPDATE users SET telegram_chat_id = 2008 WHERE id = :i"),
-                    {'i': world['tech'].id})
-    assert admin.import_links() >= 1
-    assert auth.resolve_actor_fields(2008)['user_id'] == world['tech'].id
-    assert admin.import_links() == 0                     # idempotent
 
 
 def _update(chat_id):

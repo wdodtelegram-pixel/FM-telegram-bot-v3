@@ -9,7 +9,7 @@ modules stay short.
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 
-from botapp.fm import catalog
+from core.fm import catalog
 
 MAX_MESSAGE_LENGTH = 4096  # Telegram's hard limit
 

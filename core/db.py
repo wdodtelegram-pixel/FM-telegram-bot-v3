@@ -26,7 +26,7 @@ import asyncio
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, scoped_session, sessionmaker
 
-from botapp import config
+from core import config
 
 Session = scoped_session(sessionmaker(autoflush=True, expire_on_commit=True))
 Base = declarative_base()

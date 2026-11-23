@@ -17,9 +17,9 @@ import logging
 from telegram.constants import ParseMode
 from telegram.error import Forbidden
 
-from botapp.db import db, run_db
-from botapp.fm import formatters
-from botapp.models import BotMember, BotNotificationLog, Defect
+from core.db import db, run_db
+from core.fm import formatters
+from core.models import BotMember, BotNotificationLog, Defect
 
 logger = logging.getLogger(__name__)
 

@@ -22,7 +22,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 
-from botapp.db import Base
+from core.db import Base
 
 ROLES = ('admin', 'csr', 'building_executive', 'technician')
 
@@ -48,6 +48,24 @@ class Building(Base):
     address = Column(String, nullable=False)
 
 
+class EquipmentType(Base):
+    """
+    An equipment type / category: ACMV, Lift, ..., Event. Editable by master
+    control (website or CLI); the bot reads it live. `key` is the short handle
+    used in commands and callbacks, `name` is what jobs store in their
+    `category` column.
+    """
+    __tablename__ = 'equipment_types'
+    id = Column(Integer, primary_key=True)
+    key = Column(String(32), unique=True, nullable=False)
+    name = Column(String(64), unique=True, nullable=False)
+    blurb = Column(String, nullable=True)
+    emoji = Column(String(8), nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
 class Defect(Base):
     __tablename__ = 'defects'
     id = Column(Integer, primary_key=True)
@@ -65,6 +83,17 @@ class Defect(Base):
     reporter_label = Column(String, nullable=True)     # display name captured at report time
     assigned_technician_id = Column(Integer, ForeignKey('users.id'), nullable=True)
     deleted_at = Column(DateTime, nullable=True)
+    # Reports store. A defect is 'scheduled' when it was matched to a scheduled
+    # item (maintenance_job_id set) and 'unscheduled' otherwise. It has ONE
+    # occurrence time, no start-to-end span. merged_into_id marks a report that
+    # was added to an existing one instead of standing alone.
+    kind = Column(String(16), default='unscheduled', nullable=False)
+    occurred_at = Column(DateTime, nullable=True)
+    equipment_type_id = Column(Integer, ForeignKey('equipment_types.id'), nullable=True)
+    location = Column(String, nullable=True)
+    specific_equipment = Column(String, nullable=True)
+    maintenance_job_id = Column(Integer, ForeignKey('maintenance_jobs.id'), nullable=True)
+    merged_into_id = Column(Integer, ForeignKey('defects.id'), nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow,
                         onupdate=datetime.datetime.utcnow)
@@ -99,6 +128,11 @@ class MaintenanceJob(Base):
     next_job_date = Column(Date, nullable=True)
     schedule_note = Column(String, nullable=True)
     assigned_technician_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    # The merged scheduled store (scheduled maintenance + events). A scheduled
+    # item has a start-to-end timeline; the older date columns are kept.
+    starts_at = Column(DateTime, nullable=True)
+    ends_at = Column(DateTime, nullable=True)
+    equipment_type_id = Column(Integer, ForeignKey('equipment_types.id'), nullable=True)
 
     building = relationship('Building', backref='maintenance_jobs')
     technician = relationship('User', foreign_keys=[assigned_technician_id])
@@ -107,13 +141,21 @@ class MaintenanceJob(Base):
 # ---------------------------------------------------------------------------
 # Bot-owned tables
 # ---------------------------------------------------------------------------
+TIERS = ('master_control', 'end_user')
+ACCESS_STATUSES = ('pending', 'approved', 'denied', 'revoked')
+
+
 class BotMember(Base):
     """
-    The allowlist. A Telegram chat that is not in this table is refused.
+    Access (the "master control" store). One row per Telegram chat that has
+    ever asked, so a decision is remembered and nobody asks twice.
 
-    There are no roles: everyone listed has full access. `user_id` is an
-    optional link to a web-app account (a "mapped member"); it only matters
-    for "assigned to me" -- /myjobs, /mydefects and assignment alerts.
+    * tier   master_control = full access, Telegram and website (needs `user_id`
+             for the website login); end_user = Telegram only.
+    * status pending -> approved | denied; an approved member can later be
+             revoked, and master control can reconsider a denial.
+    `user_id` optionally links to a web `users` row: required for master
+    control to sign in to the website, and what makes "assigned to me" work.
     """
     __tablename__ = 'bot_members'
     id = Column(Integer, primary_key=True)
@@ -121,7 +163,16 @@ class BotMember(Base):
     telegram_username = Column(String, nullable=True)
     display_name = Column(String, nullable=False)
     user_id = Column(Integer, ForeignKey('users.id'), nullable=True)
+    tier = Column(String(16), default='end_user', nullable=False)
+    status = Column(String(16), default='pending', nullable=False)
+    requested_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=True)
+    decided_by = Column(Integer, ForeignKey('bot_members.id'), nullable=True)
+    decided_at = Column(DateTime, nullable=True)
     joined_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    @property
+    def is_master(self):
+        return self.status == 'approved' and self.tier == 'master_control'
 
 
 class BotNotificationLog(Base):

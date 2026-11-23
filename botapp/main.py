@@ -32,9 +32,10 @@ from telegram.ext import (
     filters,
 )
 
-from botapp import config, notifications
-from botapp import db as bot_db
-from botapp.fm import catalog
+from core import config
+from botapp import notifications
+from core import db as bot_db
+from core.fm import catalog
 from botapp.handlers import account, browse, defects
 
 # httpx is silenced because it logs every single Telegram poll, which floods

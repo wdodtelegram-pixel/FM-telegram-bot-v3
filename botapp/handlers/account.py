@@ -9,10 +9,10 @@ import logging
 
 from telegram.constants import ParseMode
 
-from botapp.actor import Actor
+from core.actor import Actor
 from botapp.auth import require_member, resolve_actor_fields
-from botapp.db import run_db
-from botapp.fm import formatters
+from core.db import run_db
+from core.fm import formatters
 from botapp.ui import category_keyboard, reply
 
 logger = logging.getLogger(__name__)

@@ -24,10 +24,11 @@ sys.path.insert(0, ROOT)
 
 from sqlalchemy import text            # noqa: E402
 
-from botapp import config, db as dbmod, notifications      # noqa: E402
+from core import config, db as dbmod
+from botapp import notifications      # noqa: E402
 from botapp.handlers import account, browse, defects        # noqa: E402
 from botapp.main import button_handler                      # noqa: E402
-from botapp.models import BotMember, Building, Defect, MaintenanceJob  # noqa: E402
+from core.models import BotMember, Building, Defect, MaintenanceJob  # noqa: E402
 
 WIDTH = 66
 

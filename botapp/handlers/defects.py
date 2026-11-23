@@ -21,12 +21,12 @@ from telegram.ext import (
 )
 
 from botapp.auth import require_member
-from botapp.db import run_db
+from core.db import run_db
 from botapp.ui import buildings_keyboard, priority_keyboard, reply
-from botapp.fm import formatters
-from botapp.actor import Actor
-from botapp.services import defect_service
-from botapp.services.defect_service import DefectError
+from core.fm import formatters
+from core.actor import Actor
+from core.services import defect_service
+from core.services.defect_service import DefectError
 
 logger = logging.getLogger(__name__)
 

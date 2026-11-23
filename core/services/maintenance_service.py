@@ -10,9 +10,9 @@ import datetime
 
 from sqlalchemy import case, func, or_
 
-from botapp.db import db
-from botapp.fm import catalog
-from botapp.models import MaintenanceJob
+from core.db import db
+from core.fm import catalog
+from core.models import MaintenanceJob
 
 
 class MaintenanceError(Exception):

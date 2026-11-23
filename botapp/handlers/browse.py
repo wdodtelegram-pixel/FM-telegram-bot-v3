@@ -14,12 +14,12 @@ import logging
 
 import datetime
 
-from botapp import config
+from core import config
 from botapp.auth import require_member
-from botapp.db import run_db
+from core.db import run_db
 from botapp.ui import category_keyboard, reply
-from botapp.fm import formatters
-from botapp.services import maintenance_service
+from core.fm import formatters
+from core.services import maintenance_service
 
 logger = logging.getLogger(__name__)
 

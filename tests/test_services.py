@@ -1,9 +1,9 @@
 import pytest
 
-from botapp.actor import Actor
-from botapp.models import Defect, DefectComment, MaintenanceJob
-from botapp.services import defect_service as ds
-from botapp.services import maintenance_service as ms
+from core.actor import Actor
+from core.models import Defect, DefectComment, MaintenanceJob
+from core.services import defect_service as ds
+from core.services import maintenance_service as ms
 
 
 def actor(member_id=1, user_id=None, name='Pat'):
@@ -131,7 +131,7 @@ def test_overdue_excludes_completed_and_undated(session, world):
 
 
 def test_calendar_message_groups_by_day_and_flags_overdue(session, world):
-    from botapp.fm import formatters
+    from core.fm import formatters
     _job('MSG-1', due=TODAY)
     _job('MSG-2', due=TODAY + datetime.timedelta(days=1))
     _job('MSG-OD', due=TODAY - datetime.timedelta(days=2))
@@ -145,7 +145,7 @@ def test_calendar_message_groups_by_day_and_flags_overdue(session, world):
 
 
 def test_calendar_caps_long_lists(session, world):
-    from botapp.fm import formatters
+    from core.fm import formatters
     for i in range(65):
         _job(f'CAP-{i:03d}', due=TODAY)
     text = formatters.calendar_message('x', ms.calendar_entries(TODAY, TODAY), TODAY, empty='-')
@@ -153,14 +153,14 @@ def test_calendar_caps_long_lists(session, world):
 
 
 def test_empty_calendar_says_so(session, world):
-    from botapp.fm import formatters
+    from core.fm import formatters
     far = datetime.date(2099, 1, 1)
     assert 'Nothing scheduled' in formatters.calendar_message(
         'x', ms.calendar_entries(far, far), far, empty='Nothing scheduled in this period.')
 
 
 def test_today_uses_the_configured_timezone(monkeypatch):
-    from botapp import config
+    from core import config
     monkeypatch.setenv('TZ', 'Pacific/Kiritimati')   # UTC+14
     ahead = config.today()
     monkeypatch.setenv('TZ', 'Pacific/Pago_Pago')    # UTC-11

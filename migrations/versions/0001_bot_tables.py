@@ -1,7 +1,7 @@
 """bot identity and notification tables
 
 Revision ID: 0001
-Revises:
+Revises: 0000
 
 Creates only what the bot owns. The shared tables (users, defects, ...) belong
 to the web API's migrations; this requires them to exist because bot_members
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = '0001'
-down_revision = None
+down_revision = '0000'
 branch_labels = None
 depends_on = None
 

@@ -13,10 +13,10 @@ import logging
 
 from telegram.constants import ParseMode
 
-from botapp.actor import Actor
-from botapp.db import run_db
-from botapp.fm import formatters
-from botapp.models import BotMember
+from core.actor import Actor
+from core.db import run_db
+from core.fm import formatters
+from core.models import BotMember
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,10 @@ logger = logging.getLogger(__name__)
 def resolve_actor_fields(chat_id):
     """The member as a plain dict, or None if the chat is not allowed. Runs inside run_db()."""
     member = BotMember.query.filter_by(telegram_chat_id=chat_id).first()
-    if member is None:
+    if member is None or member.status != 'approved':
         return None
-    return {'member_id': member.id, 'name': member.display_name, 'user_id': member.user_id}
+    return {'member_id': member.id, 'name': member.display_name, 'user_id': member.user_id,
+            'tier': member.tier}
 
 
 def require_member(handler):
@@ -36,7 +37,7 @@ def require_member(handler):
         @require_member
         async def my_handler(update, context, user): ...
 
-    `user` is a botapp.actor.Actor.
+    `user` is a core.actor.Actor.
     """
     @functools.wraps(handler)
     async def wrapper(update, context, *args, **kwargs):

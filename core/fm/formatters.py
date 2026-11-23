@@ -15,8 +15,8 @@ import html
 import math
 from typing import Any
 
-from botapp.fm import catalog
-from botapp.fm.date_utils import to_week_format
+from core.fm import catalog
+from core.fm.date_utils import to_week_format
 
 
 def _is_missing(value: Any) -> bool:

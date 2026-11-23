@@ -2,13 +2,13 @@
 Defect queries and creation.
 
 Ported from the API's services/defect_service.py with one structural change:
-the acting person is a botapp.actor.Actor, not a users row. A member who is not
+the acting person is a core.actor.Actor, not a users row. A member who is not
 mapped to a web account has no users row, so a defect they raise is recorded with
 `bot_reporter_id` + `reporter_label` instead of `reporter_id`.
 """
 
-from botapp.db import db
-from botapp.models import Building, Defect, DefectComment
+from core.db import db
+from core.models import Building, Defect, DefectComment
 
 OPEN_STATUSES = ('Open', 'Reviewed', 'Ongoing', 'Done')
 

@@ -16,9 +16,9 @@ from sqlalchemy import create_engine
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from botapp import config            # noqa: E402
-from botapp.db import Base           # noqa: E402
-import botapp.models                 # noqa: E402,F401
+from core import config            # noqa: E402
+from core.db import Base           # noqa: E402
+import core.models                 # noqa: E402,F401
 
 OWNED = {'bot_members', 'bot_notification_log'}
 
