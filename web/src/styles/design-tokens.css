@@ -1,0 +1,124 @@
+/* Design Tokens for Building Defect Management System */
+
+@layer theme {
+  :root {
+    /* Status Colors */
+    --status-open: oklch(0.871 0.15 262.881);
+    --status-open-bg: oklch(0.962 0.044 262.881);
+    --status-reviewed: oklch(0.827 0.119 306.383);
+    --status-reviewed-bg: oklch(0.946 0.033 307.174);
+    --status-ongoing: oklch(0.852 0.199 91.936);
+    --status-ongoing-bg: oklch(0.973 0.071 103.193);
+    --status-done: oklch(0.871 0.15 154.449);
+    --status-done-bg: oklch(0.962 0.044 156.743);
+    --status-completed: oklch(0.707 0.022 261.325);
+    --status-completed-bg: oklch(0.928 0.006 264.531);
+
+    /* Priority Colors */
+    --priority-low: oklch(0.627 0.194 149.214);
+    --priority-low-bg: oklch(0.962 0.044 156.743);
+    --priority-medium: oklch(0.681 0.162 75.834);
+    --priority-medium-bg: oklch(0.973 0.071 103.193);
+    --priority-high: oklch(0.577 0.245 27.325);
+    --priority-high-bg: oklch(0.962 0.044 27.325);
+
+    /* Semantic Colors */
+    --color-success: oklch(0.627 0.194 149.214);
+    --color-warning: oklch(0.681 0.162 75.834);
+    --color-error: oklch(0.577 0.245 27.325);
+    --color-info: oklch(0.546 0.245 262.881);
+
+    /* Button Colors */
+    --button-primary-bg: oklch(0.278 0.033 256.848);
+    --button-primary-text: #ffffff;
+    --button-primary-hover: oklch(0.373 0.034 259.733);
+
+    --button-secondary-bg: oklch(0.967 0.003 264.542);
+    --button-secondary-text: oklch(0.278 0.033 256.848);
+    --button-secondary-border: oklch(0.872 0.01 258.338);
+
+    --button-danger-bg: oklch(0.577 0.245 27.325);
+    --button-danger-text: #ffffff;
+    --button-danger-hover: oklch(0.577 0.245 27.325 / 0.9);
+
+    /* Input Styling */
+    --input-border: oklch(0.872 0.01 258.338);
+    --input-border-focus: transparent;
+    --input-ring-focus: oklch(0.546 0.245 262.881);
+    --input-bg: #ffffff;
+    --input-text: oklch(0.278 0.033 256.848);
+
+    /* Surface Colors */
+    --surface-primary: #ffffff;
+    --surface-secondary: oklch(0.985 0.002 247.839);
+    --surface-tertiary: oklch(0.967 0.003 264.542);
+
+    /* Text Colors */
+    --text-primary: oklch(0.21 0.034 264.665);
+    --text-secondary: oklch(0.446 0.03 256.802);
+    --text-tertiary: oklch(0.551 0.027 264.364);
+    --text-disabled: oklch(0.707 0.022 261.325);
+
+    /* Focus Ring */
+    --focus-ring-offset: 2px;
+    --focus-ring-width: 3px;
+    --focus-ring-color: var(--color-blue-600);
+
+    /* Transitions */
+    --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-base: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md:
+      0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg:
+      0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    --shadow-xl:
+      0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+
+    /* Border Radius */
+    --radius-sm: 0.375rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+
+    /* Spacing */
+    --space-xs: 0.25rem;
+    --space-sm: 0.5rem;
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2rem;
+    --space-2xl: 3rem;
+  }
+}
+
+/* Focus Styles */
+@layer base {
+  *:focus-visible {
+    outline: var(--focus-ring-width) solid var(--focus-ring-color);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* Remove default focus for mouse users, keep for keyboard */
+  *:focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Skip to content link */
+  .skip-to-content {
+    position: absolute;
+    top: -100px;
+    left: 0;
+    z-index: 9999;
+    padding: calc(var(--spacing) * 3) calc(var(--spacing) * 6);
+    background-color: var(--color-blue-600);
+    color: var(--color-white);
+    text-decoration: none;
+    border-radius: 0 0 var(--radius-md) 0;
+  }
+
+  .skip-to-content:focus {
+    top: 0;
+  }
+}

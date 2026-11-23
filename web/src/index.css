@@ -1,0 +1,8 @@
+@import "tailwindcss";
+@import "./styles/design-tokens.css";
+
+/* Same page background as the BMS web app. */
+.wf-app {
+  background: var(--surface-secondary);
+  color: var(--text-primary);
+}
