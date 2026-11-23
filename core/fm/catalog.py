@@ -63,6 +63,26 @@ CATEGORY_NAMES = [meta["name"] for meta in CATEGORIES.values()]
 KEY_BY_NAME = {meta["name"]: key for key, meta in CATEGORIES.items()}
 
 
+def replace_categories(mapping):
+    """
+    Swap the live category list for `mapping` ({key: {name, blurb, emoji, ...}}).
+
+    Equipment types are editable in the database, so the process refreshes this
+    from there (core/equipment.py). The dict and list objects are updated IN
+    PLACE: every module that did `catalog.CATEGORIES.items()` sees the change
+    with no re-import. An empty mapping is ignored so a database with no types
+    keeps the built-in defaults rather than losing every trade.
+    """
+    if not mapping:
+        return
+    CATEGORIES.clear()
+    for key, meta in mapping.items():
+        CATEGORIES[key] = {"excel": meta["name"], **meta}
+    CATEGORY_NAMES[:] = [meta["name"] for meta in CATEGORIES.values()]
+    KEY_BY_NAME.clear()
+    KEY_BY_NAME.update({meta["name"]: key for key, meta in CATEGORIES.items()})
+
+
 def category_key(name):
     """Command key for a stored category name, or None if it is not a known trade."""
     return KEY_BY_NAME.get((name or "").strip())

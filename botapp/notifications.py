@@ -17,9 +17,14 @@ import logging
 from telegram.constants import ParseMode
 from telegram.error import Forbidden
 
-from botapp.db import db, run_db
-from botapp.fm import formatters
-from botapp.models import BotMember, BotNotificationLog, Defect
+import datetime as _dt
+
+from sqlalchemy import or_
+
+from core import access
+from core.db import db, run_db
+from core.fm import formatters
+from core.models import BotMember, BotNotificationLog, Defect
 
 logger = logging.getLogger(__name__)
 
@@ -115,3 +120,69 @@ async def poll(context):
         except Exception as exc:
             logger.warning('Alert for defect %s failed: %s', item['defect_id'], exc)
             await run_db(record_result, item['defect_id'], item['user_id'], False, str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Access notices
+# ---------------------------------------------------------------------------
+def collect_access_notices():
+    """
+    Decisions the requester has not been told about (typically made in the
+    website) and pending requests master control has not been told about.
+    Plain dicts out: the session closes after this returns.
+    """
+    from botapp.ui import access_decision_keyboard    # keyboards are built by the sender
+    out = []
+    decided = (BotMember.query
+               .filter(BotMember.status.in_(('approved', 'denied', 'revoked')),
+                       or_(BotMember.notified_status.is_(None),
+                           BotMember.notified_status != BotMember.status))
+               .limit(BATCH).all())
+    for m in decided:
+        out.append({'kind': 'decision', 'member_id': m.id, 'chats': [m.telegram_chat_id],
+                    'status': m.status, 'text': formatters.access_decision_notice(m.status)})
+
+    masters = [x.telegram_chat_id for x in access.masters()]
+    if masters:
+        pending = (BotMember.query.filter_by(status='pending', masters_notified_at=None)
+                   .limit(BATCH).all())
+        for m in pending:
+            out.append({'kind': 'request', 'member_id': m.id, 'chats': masters, 'status': 'pending',
+                        'text': formatters.access_request_notice(access.serialize(m))})
+    return out
+
+
+def mark_access_notified(kind, member_id, status):
+    m = BotMember.query.get(member_id)
+    if m is None:
+        return
+    if kind == 'decision':
+        m.notified_status = status
+    else:
+        m.masters_notified_at = _dt.datetime.utcnow()
+    db.session.commit()
+
+
+async def poll_access(context):
+    """JobQueue callback: deliver access notices the interactive path did not."""
+    from botapp.ui import access_decision_keyboard
+    try:
+        notices = await run_db(collect_access_notices)
+    except Exception:
+        logger.exception('Could not look for access notices')
+        return
+
+    for n in notices:
+        delivered = False
+        for chat_id in n['chats']:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id, text=n['text'], parse_mode=ParseMode.HTML,
+                    reply_markup=access_decision_keyboard(n['member_id']) if n['kind'] == 'request' else None)
+                delivered = True
+            except Forbidden:
+                delivered = True        # they blocked the bot; retrying cannot help
+            except Exception as exc:
+                logger.warning('Access notice for member %s failed: %s', n['member_id'], exc)
+        if delivered:
+            await run_db(mark_access_notified, n['kind'], n['member_id'], n['status'])

@@ -1,40 +1,40 @@
 """
-Render the Telegram demos in README.md from the REAL handlers and formatters.
+Render the Telegram demos in README.md from the REAL bot.
 
     DATABASE_URL=postgresql://... python tools/render_demos.py --write
 
-Everything runs inside a transaction that is rolled back, against whatever is
-in the database plus a few rows this script adds for the occasion (a member, a
-mapped technician, jobs dated around today). Nothing is left behind. The output
-replaces the text between the demos:start/end markers in README.md, so the
-demos cannot drift from the code: regenerate after changing a message.
+It drives the production Application (the same handlers, conversations and
+buttons as a live bot) with a fake Telegram, inside a transaction that is rolled
+back, against demo data it adds for the occasion (scheduled items dated around
+today, an earlier report, a few people). Nothing is left in the database. The
+output replaces the text between the demos:start/end markers in README.md, so
+the demos cannot drift from the code: regenerate after changing any message.
 """
 
 import argparse
-import asyncio
 import datetime
 import html
 import os
 import re
 import sys
-from unittest.mock import AsyncMock, MagicMock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from sqlalchemy import text            # noqa: E402
+from core import access, config, equipment                                  # noqa: E402
+from core import db as dbmod                                                # noqa: E402
+from core.models import (BotMember, Defect, DefectComment, MaintenanceJob,  # noqa: E402
+                         User)
+from botapp import admin, notifications                                     # noqa: E402
+from tests.harness import Chat, make_app                                     # noqa: E402
 
-from botapp import config, db as dbmod, notifications      # noqa: E402
-from botapp.handlers import account, browse, defects        # noqa: E402
-from botapp.main import button_handler                      # noqa: E402
-from botapp.models import BotMember, Building, Defect, MaintenanceJob  # noqa: E402
-
-WIDTH = 66
+WIDTH = 64
+NAMES = {5001: 'Alex (master control)', 5002: 'Tess (end user)', 5003: 'Sam (new person)',
+         5004: 'Priya (end user)'}
 
 
 def plain(s):
-    s = re.sub(r'</?(b|i|code|u)>', '', s)
-    return html.unescape(s)
+    return html.unescape(re.sub(r'</?(b|i|code|u)>', '', s))
 
 
 def wrap(line):
@@ -42,209 +42,251 @@ def wrap(line):
     while len(cur) > WIDTH:
         cut = cur.rfind(' ', 0, WIDTH)
         cut = cut if cut > 20 else WIDTH
-        out.append(cur[:cut]); cur = '   ' + cur[cut:].lstrip()
+        out.append(cur[:cut])
+        cur = '   ' + cur[cut:].lstrip()
     return out + [cur]
 
 
-def bubble(msg, markup=None, edited=False):
+def bubble(text, markup, edited, who=None):
     lines = []
-    for raw in plain(msg).split('\n'):
+    for raw in plain(text).split('\n'):
         lines += wrap(raw)
-    body = '\n'.join(f'  │ {l}' for l in lines)
-    top = '  ┌─ bot' + (' (edited in place)' if edited else '') + ' ' + '─' * 40
-    out = f'{top}\n{body}\n  └' + '─' * 52
+    head = '  ┌─ bot' + (f' → {who}' if who else '') + (' (edited in place)' if edited else '') + ' '
+    out = head + '─' * max(6, 56 - len(head)) + '\n' + '\n'.join(f'  │ {l}' for l in lines) + '\n  └' + '─' * 52
     if markup is not None:
         for row in markup.inline_keyboard:
             out += '\n  ' + '  '.join(f'[ {b.text} ]' for b in row)
     return out
 
 
-class Chat:
-    """A scripted conversation that records what the bot says."""
+class Scribe:
+    """Runs a scripted conversation and writes it down as the user would see it."""
 
-    def __init__(self, chat_id, name='Demo'):
-        self.chat_id, self.name, self.log, self.user_data = chat_id, name, [], {}
+    def __init__(self, app, bot):
+        self.app, self.bot = app, bot
+        self.lines = []
+        self.chats = {}
 
-    def _update(self, text=None, data=None, photo=None):
-        u = MagicMock()
-        u.effective_chat.id = self.chat_id
-        u.effective_user.full_name = self.name
-        u.effective_user.username = 'demo'
+    def chat(self, chat_id):
+        if chat_id not in self.chats:
+            self.chats[chat_id] = Chat(self.app, self.bot, chat_id, NAMES.get(chat_id, 'Demo').split(' (')[0])
+        return self.chats[chat_id]
 
-        async def send(t, parse_mode=None, reply_markup=None):
-            self.log.append(bubble(t, reply_markup))
-        u.effective_chat.send_message = send
-        if data is not None:
-            q = MagicMock(); q.data = data; q.answer = AsyncMock()
+    def _flush(self, since, acting_chat, multi):
+        for chat_id, text, _m, edited, markup in self.bot.log[since:]:
+            who = None
+            if multi or chat_id != acting_chat:     # a message that went to someone else is labelled
+                who = NAMES.get(chat_id, str(chat_id)).split(' (')[0]
+            self.lines.append(bubble(text, markup, edited, who))
 
-            async def edit(t, parse_mode=None, reply_markup=None):
-                self.log.append(bubble(t, reply_markup, edited=True))
-            q.edit_message_text = edit
-            u.callback_query = q
-            u.message = None
-        else:
-            u.callback_query = None
-            u.message.text = text
-            u.message.photo = photo
-            u.message.reply_text = AsyncMock(
-                side_effect=lambda t, **k: self.log.append(bubble(t)))
-        return u
+    def say(self, chat_id, text, multi=False):
+        since = len(self.bot.log)
+        self.lines.append(f'{NAMES.get(chat_id, chat_id).split(" (")[0]} ▸ {text}' if multi else f'you ▸ {text}')
+        self.chat(chat_id).say(text)
+        self._flush(since, chat_id, multi)
 
-    def _ctx(self, args=None):
-        c = MagicMock(); c.args = args or []; c.user_data = self.user_data
-        return c
+    def tap(self, chat_id, label, data, multi=False):
+        since = len(self.bot.log)
+        who = f'{NAMES.get(chat_id, chat_id).split(" (")[0]} ▸ ' if multi else 'you ▸ '
+        self.lines.append(f'{who}(taps {label})')
+        self.chat(chat_id).tap(data)
+        self._flush(since, chat_id, multi)
 
-    def say(self, line):
-        self.log.append(f'you ▸ {line}')
-
-    async def command(self, line, handler, **kw):
-        self.say(line)
-        parts = line.split()
-        await handler(self._update(text=line), self._ctx(parts[1:]), **kw)
-
-    async def tap(self, label, data):
-        self.log.append(f'you ▸ (taps {label})')
-        await button_handler(self._update(data=data), self._ctx())
+    def note(self, text):
+        self.lines.append(f'· {text}')
 
     def out(self):
-        return '\n'.join(self.log)
+        return '\n'.join(self.lines)
 
 
-def demo(title, blurb, chat):
-    return f'#### {title}\n\n{blurb}\n\n```text\n{chat.out()}\n```\n'
+def demo(title, blurb, scribe):
+    return f'#### {title}\n\n{blurb}\n\n```text\n{scribe.out()}\n```\n'
 
 
-async def build():
-    today = config.today()
-    d = datetime.timedelta
+def fresh(app_bot):
+    return Scribe(*app_bot)
+
+
+def build():
     s = dbmod.Session
-    web = s.execute(text("SELECT id FROM users WHERE role='technician' ORDER BY id LIMIT 1")).scalar()
-    if web is None:
-        raise SystemExit('seed the database first (Backend: python -m scripts.seed)')
-    building = Building.query.order_by(Building.id).first()
-    for ref, cat, desc, loc, status, due, nxt in [
-        ('ACMV-D01', 'ACMV', 'Replace chiller filters', 'Level 3 Plant Room', 'In Progress', today, today + d(days=30)),
-        ('LIFT-D01', 'Lift', 'Quarterly lift inspection', 'Block A lifts', 'Yet to Start', today + d(days=1), None),
-        ('FIRE-D01', 'Fire Protection', 'Sprinkler flow test', 'Basement 1', 'Yet to Start', today + d(days=4), None),
-        ('ELEC-D01', 'Electrical', 'Thermal scan of main switchboard', 'MSB room', 'Yet to Start', today - d(days=3), None),
-        ('PLMB-D01', 'Plumbing', 'Flush water tanks', 'Roof tank', 'Completed', today - d(days=10), today + d(days=2)),
-    ]:
-        s.add(MaintenanceJob(job_ref=ref, category=cat, description=desc, location=loc,
-                             maintenance_type='Preventive', status=status,
-                             estimated_completion=due, next_job_date=nxt, building_id=building.id,
-                             assigned_technician_id=web if ref == 'ACMV-D01' else None))
+    now = config.now()
+    D = datetime.timedelta
+
+    # A clean slate for the stores the demos touch (rolled back at the end).
+    DefectComment.query.delete(); MaintenanceJob.query.delete(); Defect.query.delete()
+    BotMember.query.delete()
     s.flush()
 
+    acmv, lift, elec, event = (equipment.get_by_key_or_name(k) for k in ('acmv', 'lift', 'electrical', 'event'))
+
+    def job(ref, etype, desc, loc, start, end, status='Yet to Start'):
+        j = MaintenanceJob(job_ref=ref, category=etype.name, equipment_type_id=etype.id, description=desc,
+                           location=loc, maintenance_type='Preventive', status=status, starts_at=start,
+                           ends_at=end, estimated_completion=end.date() if end else None)
+        s.add(j); s.flush(); return j
+
+    today9 = datetime.datetime.combine(now.date(), datetime.time(9, 0))
+    job('ACMV-001', acmv, 'Replace chiller filters', 'Level 3 Plant Room', today9, today9 + D(hours=8), 'In Progress')
+    job('ACMV-002', acmv, 'Cooling tower belt check', 'Roof', today9 + D(days=2), today9 + D(days=2, hours=3))
+    job('LIFT-001', lift, 'Quarterly lift inspection', 'Block A lifts', today9 + D(days=1, hours=1), today9 + D(days=1, hours=3))
+    job('EVT-001', event, 'Annual fire drill', 'Main lobby', today9 + D(days=3, hours=1), today9 + D(days=3, hours=2))
+    job('ELEC-001', elec, 'Thermal scan of main switchboard', 'MSB room', today9 - D(days=3), today9 - D(days=3) + D(hours=2))
+
+    # people: master control, an end user, a mapped end user with an assigned defect
+    web_tech = s.execute(__import__('sqlalchemy').text(
+        "INSERT INTO users (name, email, password_hash, role) VALUES ('Priya Nair','priya@demo.invalid','x',"
+        "CAST('technician' AS user_roles)) RETURNING id")).scalar()
+    admin.add_member(5001, 'Alex Admin', tier='master_control')
+    admin.add_member(5002, 'Tess Tan', tier='end_user')
+    admin.add_member(5004, 'Priya Nair', web_user=web_tech, tier='end_user')
+
+    from core.actor import Actor
+    from core.services import report_service
+    report_service.record_report(
+        Actor(member_id=0, name='Mohan'), acmv.id, now - D(hours=5), 'Roof cooling tower 2',
+        'Cooling tower fan is grinding loudly', specific_equipment='Cooling tower 2')
+
+    app_bot = make_app()
     out = {}
 
-    stranger = Chat(900001, 'Stranger')
-    await stranger.command('/start', account.start_command)
-    await stranger.command('/service', browse.service_command)
-    out['stranger'] = demo('Someone who is not on the allowlist',
-                           'They learn only their own Telegram ID, so they can ask an administrator '
-                           'to add them. No data is shown.', stranger)
+    # --- access ------------------------------------------------------------
+    sc = fresh(app_bot)
+    sc.say(5003, '/start')
+    sc.tap(5003, 'Request access', 'acc:request')
+    sc.say(5003, '/service')
+    out['request'] = demo('Asking for access (once)',
+                          'Someone who is not approved sees no data, only a button. After they ask, the bot remembers '
+                          'the request: asking again does not notify anyone twice.', sc)
 
-    s.add(BotMember(telegram_chat_id=900002, display_name='Alex Admin')); s.flush()
-    a = Chat(900002, 'Alex Admin')
-    await a.command('/start', account.start_command)
-    out['start'] = demo('/start and /help', 'The command list, generated from the trade catalog.', a)
+    sc = fresh(app_bot)
+    mid = access.by_chat(5003).id
+    sc.note('Sam has just asked for access; master control received this message:')
+    for chat_id, text, _m, edited, markup in [e for e in app_bot[1].log if e[0] == 5001 and 'Access request' in e[1]][-1:]:
+        sc.lines.append(bubble(text, markup, edited, 'Alex'))
+    sc.tap(5001, 'Approve', f'acc:ap:{mid}', multi=True)
+    sc.say(5003, '/start', multi=True)
+    out['approve'] = demo('Master control approves',
+                          'Approve, Approve as master, or Deny, in Telegram (or on the website). The person is told '
+                          'immediately and never has to ask again.', sc)
 
-    a = Chat(900002, 'Alex Admin')
-    await a.command('/whoami', account.whoami_command)
-    out['whoami'] = demo('/whoami', 'A member with no web account link.', a)
+    sc = fresh(app_bot)
+    sc.say(5002, '/start')
+    out['menu'] = demo('/start: the guided menu',
+                       'The two guided flows lead every screen; the rest are shortcuts.', sc)
+    sc = fresh(app_bot)
+    sc.say(5002, '/whoami')
+    sc.say(5004, '/whoami')
+    sc.say(5001, '/whoami')
+    out['whoami'] = demo('/whoami',
+                         'Tess has no web account; Priya is linked to one (so "assigned to me" works); Alex is master control.', sc)
 
-    s.add(BotMember(telegram_chat_id=900003, display_name='Tara Tech', user_id=web)); s.flush()
-    t = Chat(900003, 'Tara Tech')
-    await t.command('/whoami', account.whoami_command)
-    out['whoami_mapped'] = demo('/whoami (a mapped member)',
-                                'This person is linked to a web-app account, so "assigned to me" works.', t)
+    # --- event query ---------------------------------------------------------
+    sc = fresh(app_bot)
+    sc.say(5002, '/events')
+    sc.tap(5002, 'Today', 'ev:today')
+    out['events_today'] = demo('Event query: a quick option', 'The bot asks when; tap a quick option.', sc)
 
-    a = Chat(900002, 'Alex Admin')
-    await a.command('/service', browse.service_command)
-    out['service'] = demo('/service', 'One screen: every trade with its status counts.', a)
+    sc = fresh(app_bot)
+    sc.tap(5002, 'Event query', 'menu:events')
+    sc.tap(5002, 'Pick a date', 'ev:pick')
+    sc.say(5002, 'whenever')
+    d = (now + D(days=3))
+    sc.say(5002, f'{d:%d %b}')
+    out['events_pick'] = demo('Event query: type a date',
+                              'A day or a range ("25 Nov", "25/11 - 30/11"). It says so if it cannot read it. '
+                              '"Event" is an equipment type like ACMV.', sc)
 
-    a = Chat(900002, 'Alex Admin')
-    await a.command('/acmv', browse.category_command, key='acmv')
-    out['acmv'] = demo('/acmv  (also /lift /electrical /fire /plumbing)',
-                       'Unfinished work first. Commands are generated from the catalog.', a)
+    # --- defect reporting ----------------------------------------------------
+    sc = fresh(app_bot)
+    sc.say(5002, '/report')
+    sc.tap(5002, 'Just now', 'rp:when:now')
+    sc.tap(5002, 'ACMV', 'rp:type:acmv')
+    sc.say(5002, 'Level 3 plant room')
+    sc.say(5002, 'Chiller filters look blocked')
+    sc.tap(5002, 'Yes, this one', 'rp:m:yes')
+    sc.tap(5002, 'Submit', 'rp:ok')
+    out['report_scheduled'] = demo('Reporting: it matches a scheduled item',
+                                   'The bot asks, then looks through the scheduled and earlier unscheduled records and '
+                                   'asks "Is this it?". A yes records the report against that scheduled item.', sc)
 
-    a = Chat(900002, 'Alex Admin')
-    await a.tap('🛗 Lift', 'cat:lift')
-    out['tap'] = demo('Tapping a button', 'Buttons edit the message in place instead of adding a new one.', a)
+    sc = fresh(app_bot)
+    sc.say(5004, '/report')
+    sc.tap(5004, '3 hours ago', 'rp:when:h3')
+    sc.tap(5004, 'Plumbing', 'rp:type:plumbing')
+    sc.say(5004, 'Basement 2 pump room')
+    sc.say(5004, 'Water dripping from the main valve')
+    sc.say(5004, 'Sump pump 3')
+    sc.tap(5004, 'High', 'rp:pri:high')
+    sc.tap(5004, 'Skip', 'rp:skip')
+    sc.tap(5004, 'Submit', 'rp:ok')
+    out['report_new'] = demo('Reporting: nothing similar, so a fresh report',
+                             'When neither store has a close match the bot says so and guides a new report: specific '
+                             'equipment (optional), priority, optional photo, confirm.', sc)
 
-    a = Chat(900002, 'Alex Admin')
-    await a.command('/pending', browse.pending_command)
-    out['pending'] = demo('/pending', 'Every job that is not completed, across all trades.', a)
+    sc = fresh(app_bot)
+    sc.say(5002, '/report')
+    sc.tap(5002, 'Just now', 'rp:when:now')
+    sc.tap(5002, 'ACMV', 'rp:type:acmv')
+    sc.say(5002, 'cooling tower 2 on the roof')
+    sc.say(5002, 'Cooling tower fan grinding again')
+    sc.tap(5002, 'Yes, this one', 'rp:m:yes')
+    sc.tap(5002, 'Submit', 'rp:ok')
+    out['report_merge'] = demo('Reporting: it matches an earlier unscheduled report',
+                               'Matches are offered most-similar first across both stores (a scheduled item wins a near tie). '
+                               'Saying yes adds the new sighting to it instead of creating a duplicate. '
+                               '"None of these" would create a fresh report.', sc)
 
-    t = Chat(900003, 'Tara Tech')
-    await t.command('/myjobs', browse.my_jobs_command)
-    a = Chat(900002, 'Alex Admin')
-    await a.command('/myjobs', browse.my_jobs_command)
-    out['myjobs'] = demo('/myjobs  (mapped member)', 'Maintenance assigned to the linked web account.', t) + \
-        demo('/myjobs  (member with no web link)',
-             'Nothing can be assigned to them, so the list is empty. It is never "everything".', a)
+    sc = fresh(app_bot)
+    sc.say(5002, '/report')
+    sc.tap(5002, 'Just now', 'rp:when:now')
+    sc.tap(5002, 'Electrical', 'rp:type:electrical')
+    sc.tap(5002, 'Back', 'rp:back')
+    sc.tap(5002, 'Back', 'rp:back')
+    sc.tap(5002, 'Cancel', 'rp:cancel')
+    out['report_cancel'] = demo('Back and Cancel',
+                                'Every step has Back and Cancel; /cancel works anywhere. Nothing is logged on cancel. '
+                                'A flow left alone for 30 minutes is dropped with a message.', sc)
 
-    a = Chat(900002, 'Alex Admin')
-    await a.command('/defects', defects.defects_command)
-    out['defects'] = demo('/defects', 'Open defects, newest first, up to 25.', a)
+    # --- existing views ------------------------------------------------------
+    sc = fresh(app_bot); sc.say(5002, '/service')
+    out['service'] = demo('/service', 'Every equipment type on one screen. Types come from the editable list.', sc)
+    sc = fresh(app_bot); sc.say(5002, '/acmv')
+    out['acmv'] = demo('/acmv  (and /lift, /electrical, /fire, /plumbing, /event)',
+                       'One equipment type, unfinished work first. Commands exist for the types present at start-up; '
+                       'types added later are always one tap away in the menu.', sc)
+    sc = fresh(app_bot); sc.tap(5002, 'Lift', 'cat:lift')
+    out['tap'] = demo('Tapping a button', 'Buttons edit the message in place instead of adding a new one.', sc)
+    sc = fresh(app_bot); sc.say(5002, '/pending')
+    out['pending'] = demo('/pending', 'Everything not yet completed.', sc)
+    sc = fresh(app_bot); sc.say(5002, '/myjobs'); sc.say(5004, '/myjobs')
+    out['myjobs'] = demo('/myjobs', 'Tess has no web account, so nothing can be assigned to her (never "everything"). '
+                                    'Priya is linked to one.', sc)
+    sc = fresh(app_bot); sc.say(5002, '/defects')
+    out['defects'] = demo('/defects', 'Open reports, newest first, up to 25. Reports added to an earlier one are not listed twice.', sc)
+    sc = fresh(app_bot); sc.say(5002, '/calendar'); sc.say(5002, '/overdue')
+    out['calendar'] = demo('/calendar and /overdue',
+                           '`/calendar [today|week|month|overdue]` and the /today and /overdue shortcuts.', sc)
+    sc = fresh(app_bot); sc.say(5001, '/access')
+    out['access_cmd'] = demo('/access  (master control only)',
+                             'Pending requests with buttons, and who has access. End users get "Only master control can do that".', sc)
 
-    t = Chat(900003, 'Tara Tech')
-    await t.command('/mydefects', defects.my_defects_command)
-    out['mydefects'] = demo('/mydefects', 'Defects assigned to the linked web account.', t)
-
-    r = Chat(900002, 'Alex Admin')
-    await r.command('/report', defects.report_start)
-    r.say('Cracked lobby tile')
-    await defects.report_title(r._update(text='Cracked lobby tile'), r._ctx())
-    r.say('Tile near the lift lobby has split and is a trip hazard')
-    await defects.report_description(
-        r._update(text='Tile near the lift lobby has split and is a trip hazard'), r._ctx())
-    r.log.append(f'you ▸ (taps "{building.name}")')
-    await defects.report_building(r._update(data=f'bld:{building.id}'), r._ctx())
-    r.log.append('you ▸ (taps 🔺 High)')
-    await defects.report_priority(r._update(data='pri:high'), r._ctx())
-    r.say('/skip')
-    await defects.report_skip_photo(r._update(text='/skip'), r._ctx())
-    r.say('/confirm')
-    await defects.report_confirm(r._update(text='/confirm'), r._ctx())
-    out['report'] = demo('/report', 'A guided conversation. Send /cancel at any step to stop.', r)
-
-    for line, mode, title, blurb in [
-        ('/calendar', None, '/calendar', 'The next 7 days, grouped by day. A line at the bottom flags overdue work.'),
-        ('/today', 'today', '/today', 'Shortcut for `/calendar today`.'),
-        ('/calendar month', None, '/calendar month', 'The next 30 days. Also `week` (default), `today`, `overdue`.'),
-        ('/overdue', 'overdue', '/overdue', 'Unfinished jobs past their due date, oldest first.'),
-    ]:
-        c = Chat(900002, 'Alex Admin')
-        if mode:
-            await c.command(line, browse.calendar_command, mode=mode)
-        else:
-            await c.command(line, browse.calendar_command)
-        out[line] = demo(title, blurb, c)
-    c = Chat(900002, 'Alex Admin')
-    await c.command('/calendar fortnight', browse.calendar_command)
-    out['cal_bad'] = demo('/calendar with an unknown option', 'Anything other than today, week, month or overdue.', c)
-
-    # An alert exactly as the poller renders it
-    pending = [p for p in notifications.collect_pending() if p['chat_id'] == 900003]
-    if not pending:
-        dd = Defect(title='Water leak at B2 pump room', description='Steady drip from the main valve.',
-                    priority='high', building_id=building.id, reporter_id=web,
-                    assigned_technician_id=web)
-        s.add(dd); s.flush()
-        pending = [p for p in notifications.collect_pending() if p['chat_id'] == 900003]
-    al = Chat(900003, 'Tara Tech')
+    # assignment alert for a mapped member
+    dd = Defect(title='Water leak at B2 pump room', description='Steady drip from the main valve.',
+                priority='high', building_id=None, reporter_id=web_tech, assigned_technician_id=web_tech,
+                kind='unscheduled', location='B2 pump room', occurred_at=now)
+    s.add(dd); s.flush()
+    sc = fresh(app_bot)
+    pending = [p for p in notifications.collect_pending() if p['chat_id'] == 5004]
     for p in pending[:1]:
-        al.log.append(bubble(p['text']))
+        sc.lines.append(bubble(p['text'], None, False, 'Priya'))
     out['alert'] = demo('Assignment alert (pushed by the bot)',
-                        'Sent to a mapped member when a defect is assigned to their web account. '
-                        'Checked every 30 s, retried on failure.', al)
-
-    u = Chat(900002, 'Alex Admin')
-    u.say('hello?')
-    await account.unknown_command(u._update(text='hello?'), u._ctx())
-    out['unknown'] = demo('Anything the bot does not understand', 'It points back at /start, never silence.', u)
+                        'Sent to a linked member when a defect is assigned to their web account. Checked every 30 s, retried on failure.', sc)
     return out
+
+
+ORDER = ['request', 'approve', 'menu', 'whoami', 'events_today', 'events_pick', 'report_scheduled', 'report_new',
+         'report_merge', 'report_cancel', 'service', 'acmv', 'tap', 'pending', 'myjobs', 'defects', 'calendar',
+         'access_cmd', 'alert']
 
 
 def main():
@@ -258,22 +300,18 @@ def main():
     dbmod.Session.configure(bind=conn, join_transaction_mode='create_savepoint')
     dbmod.Session.remove()
     try:
-        out = asyncio.run(build())
+        out = build()
     finally:
         dbmod.Session.remove()
         outer.rollback()
         conn.close()
 
-    order = ['stranger', 'start', 'whoami', 'whoami_mapped', 'service', 'acmv', 'tap', 'pending', 'myjobs',
-             'defects', 'mydefects', 'report', '/calendar', '/today', '/calendar month', '/overdue',
-             'cal_bad', 'alert', 'unknown']
-    block = '\n'.join(out[k] for k in order)
+    block = '\n'.join(out[k] for k in ORDER)
     if args.write:
         path = os.path.join(ROOT, 'README.md')
         src = open(path).read()
         a, b = '<!-- demos:start -->', '<!-- demos:end -->'
-        new = src[:src.index(a) + len(a)] + '\n\n' + block + '\n' + src[src.index(b):]
-        open(path, 'w').write(new)
+        open(path, 'w').write(src[:src.index(a) + len(a)] + '\n\n' + block + '\n' + src[src.index(b):])
         print('README.md updated')
     else:
         print(block)

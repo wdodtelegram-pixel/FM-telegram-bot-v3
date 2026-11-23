@@ -16,15 +16,16 @@ from sqlalchemy import create_engine
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from botapp import config            # noqa: E402
-from botapp.db import Base           # noqa: E402
-import botapp.models                 # noqa: E402,F401
-
-OWNED = {'bot_members', 'bot_notification_log'}
-
+from core import config            # noqa: E402
+from core.db import Base           # noqa: E402
+import core.models                 # noqa: E402,F401
 
 def include_object(obj, name, type_, reflected, compare_to):
-    return name in OWNED if type_ == 'table' else True
+    """This application owns every table in its metadata. Ignore only what it does not map
+    (for example a legacy web-app table such as refresh_tokens in an existing database)."""
+    if type_ == 'table' and reflected and name not in Base.metadata.tables:
+        return False
+    return True
 
 
 def run():

@@ -32,10 +32,12 @@ from telegram.ext import (
     filters,
 )
 
-from botapp import config, notifications
-from botapp import db as bot_db
-from botapp.fm import catalog
-from botapp.handlers import account, browse, defects
+from core import config, equipment
+from botapp import notifications
+from core import db as bot_db
+from core.fm import catalog
+from botapp.handlers import access as access_handlers
+from botapp.handlers import account, browse, defects, guided
 
 # httpx is silenced because it logs every single Telegram poll, which floods
 # the log and hides anything useful.
@@ -106,7 +108,12 @@ async def button_handler(update, context):
 
     data = query.data or ''
 
-    if data == 'refresh':
+    if data == 'acc:request':
+        await access_handlers.request_callback(update, context)
+    elif data.startswith('acc:'):
+        _, action, member_id = data.split(':', 2)
+        await access_handlers.decision_callback(update, context, action, int(member_id))
+    elif data == 'refresh':
         await browse.refresh_command(update, context)
     elif data == 'pending':
         await browse.pending_command(update, context)
@@ -123,38 +130,58 @@ async def error_handler(update, context):
     logger.error("Unhandled exception", exc_info=context.error)
 
 
-async def post_init(application: Application):
-    """
-    Register the command list with Telegram, which populates the blue Menu
-    button next to the message box. Trade commands come from the catalog for
-    the same reason everything else does.
-    """
+def build_commands():
+    """The command list shown in Telegram's blue Menu button. Equipment types come from the live catalog."""
     commands = [
         BotCommand("start", "Show the welcome menu"),
-        BotCommand("service", "Routine maintenance dashboard"),
+        BotCommand("events", "Event query: what is scheduled when"),
+        BotCommand("report", "Report a defect (guided)"),
+        BotCommand("service", "Maintenance dashboard"),
     ]
+    commands += [BotCommand(key, meta["blurb"][:256]) for key, meta in catalog.CATEGORIES.items()]
     commands += [
-        BotCommand(key, meta["blurb"]) for key, meta in catalog.CATEGORIES.items()
-    ]
-    commands += [
-        BotCommand("calendar", "Maintenance agenda: today, week, month, overdue"),
+        BotCommand("calendar", "Agenda: today, week, month, overdue"),
         BotCommand("today", "What is scheduled today"),
         BotCommand("overdue", "Maintenance past its due date"),
         BotCommand("pending", "All outstanding maintenance"),
         BotCommand("myjobs", "Maintenance assigned to you"),
-        BotCommand("defects", "Open building defects"),
+        BotCommand("defects", "Open defects"),
         BotCommand("mydefects", "Defects assigned to you"),
-        BotCommand("report", "Report a new defect"),
+        BotCommand("access", "Master control: requests and members"),
         BotCommand("whoami", "Show who you are signed in as"),
         BotCommand("refresh", "Reload the latest data"),
         BotCommand("help", "Show the command list"),
     ]
+    return commands[:100]          # Telegram's limit
 
-    await application.bot.set_my_commands(commands)
+
+async def post_init(application: Application):
+    """Register the command list with Telegram (the blue Menu button)."""
+    await application.bot.set_my_commands(build_commands())
     logger.info("Bot commands registered with Telegram.")
 
 
-def build_application(token):
+CATALOG_REFRESH_SECONDS = 60
+
+
+async def refresh_catalog(context):
+    """
+    Pick up equipment-type edits made in the website (or CLI) without a restart.
+    The live catalog is updated in place; if the set of types changed, the
+    Telegram menu is re-registered too.
+    """
+    before = tuple(catalog.CATEGORIES)
+    try:
+        await bot_db.run_db(equipment.load_catalog)
+    except Exception:
+        logger.exception("Could not refresh the equipment types")
+        return
+    if tuple(catalog.CATEGORIES) != before:
+        await context.bot.set_my_commands(build_commands())
+        logger.info("Equipment types changed; command menu updated.")
+
+
+def build_application(token, bot=None):
     """
     Wire up every handler.
 
@@ -163,14 +190,17 @@ def build_application(token):
     it shares message types with, and the catch-all goes last -- registered
     earlier it would swallow every real command.
     """
-    application = ApplicationBuilder().token(token).post_init(post_init).build()
+    builder = ApplicationBuilder().post_init(post_init)
+    application = (builder.bot(bot) if bot is not None else builder.token(token)).build()
 
     # --- the /report conversation must come first ---------------------------
-    application.add_handler(defects.build_report_conversation())
+    application.add_handler(guided.build_report_conversation())
+    application.add_handler(guided.build_events_conversation())
 
     # --- account -----------------------------------------------------------
     application.add_handler(CommandHandler(["start", "help"], account.start_command))
     application.add_handler(CommandHandler("whoami", account.whoami_command))
+    application.add_handler(CommandHandler("access", access_handlers.access_command))
 
     # --- maintenance -------------------------------------------------------
     application.add_handler(CommandHandler("service", browse.service_command))
@@ -197,6 +227,10 @@ def build_application(token):
     if application.job_queue is not None:
         application.job_queue.run_repeating(
             notifications.poll, interval=notifications.POLL_SECONDS, first=10)
+        application.job_queue.run_repeating(
+            notifications.poll_access, interval=notifications.POLL_SECONDS, first=15)
+        application.job_queue.run_repeating(
+            refresh_catalog, interval=CATALOG_REFRESH_SECONDS, first=CATALOG_REFRESH_SECONDS)
     else:
         logger.warning("JobQueue unavailable (install python-telegram-bot[job-queue]); "
                        "assignment alerts are disabled.")
@@ -244,6 +278,7 @@ def main():
                 "The database is behind this version of the bot. Run its migrations:\n"
                 "  alembic -c migrations/alembic.ini upgrade head")
         try:
+            equipment.load_catalog()       # commands for the types that exist right now
             n = notifications.baseline()
             if n:
                 logger.info("First run: marked %d existing assignment(s) as already announced.", n)

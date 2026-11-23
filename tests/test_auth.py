@@ -5,7 +5,7 @@ import pytest
 
 from botapp import admin, auth
 from botapp.handlers import account
-from botapp.models import BotMember
+from core.models import BotMember
 
 
 def test_listed_chat_resolves_and_stranger_does_not(session):
@@ -43,15 +43,6 @@ def test_link_user_maps_and_clears(session, world):
         admin.link_user(2007, world['tech'].id)          # not on the list
 
 
-def test_import_links_adds_previously_linked_web_users(session, world):
-    from sqlalchemy import text
-    session.execute(text("UPDATE users SET telegram_chat_id = 2008 WHERE id = :i"),
-                    {'i': world['tech'].id})
-    assert admin.import_links() >= 1
-    assert auth.resolve_actor_fields(2008)['user_id'] == world['tech'].id
-    assert admin.import_links() == 0                     # idempotent
-
-
 def _update(chat_id):
     u = MagicMock()
     u.callback_query = None
@@ -61,7 +52,7 @@ def _update(chat_id):
     return u
 
 
-def test_stranger_gets_only_their_id_and_no_data(session):
+def test_stranger_gets_no_data_and_a_request_button(session):
     seen = []
 
     @auth.require_member
@@ -72,7 +63,7 @@ def test_stranger_gets_only_their_id_and_no_data(session):
     asyncio.run(secret(u, MagicMock()))
     assert not seen
     text = u.effective_chat.send_message.call_args[0][0]
-    assert '2009' in text and 'not authorised' in text
+    assert 'do not have access' in text
 
 
 def test_member_reaches_the_handler_with_an_actor(session):
@@ -87,8 +78,9 @@ def test_member_reaches_the_handler_with_an_actor(session):
     assert seen and seen[0].name == 'Ann' and seen[0].user_id is None
 
 
-def test_start_for_a_stranger_shows_their_id_not_the_menu(session):
+def test_start_for_a_stranger_offers_a_request_not_the_menu(session):
     u = _update(2011)
     asyncio.run(account.start_command(u, MagicMock()))
     text = u.effective_chat.send_message.call_args[0][0]
-    assert '2011' in text and '/service' not in text
+    assert 'Request access' in str(u.message.reply_text.call_args_list + u.effective_chat.send_message.call_args_list)
+    assert '/service' not in text

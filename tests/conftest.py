@@ -22,8 +22,8 @@ if not URL:
 
 os.environ['DATABASE_URL'] = URL
 
-from botapp import db as dbmod                       # noqa: E402
-from botapp.models import Building, User            # noqa: E402
+from core import db as dbmod                       # noqa: E402
+from core.models import Building, User            # noqa: E402
 
 
 @pytest.fixture()

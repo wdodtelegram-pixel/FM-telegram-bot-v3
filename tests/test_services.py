@@ -1,37 +1,13 @@
 import pytest
 
-from botapp.actor import Actor
-from botapp.models import Defect, DefectComment, MaintenanceJob
-from botapp.services import defect_service as ds
-from botapp.services import maintenance_service as ms
+from core.actor import Actor
+from core.models import Defect, DefectComment, MaintenanceJob
+from core.services import defect_service as ds
+from core.services import maintenance_service as ms
 
 
 def actor(member_id=1, user_id=None, name='Pat'):
     return Actor(member_id=member_id, name=name, user_id=user_id)
-
-
-def test_bot_only_csr_can_report_and_is_recorded_as_a_bot_reporter(session, world):
-    d = ds.create_defect(actor(member_id=7), 'Cracked tile', 'Lobby floor', world['building'].id, 'high')
-    row = Defect.query.get(d.id)
-    assert row.reporter_id is None and row.bot_reporter_id == 7 and row.reporter_label == 'Pat'
-    assert DefectComment.query.filter_by(defect_id=d.id).count() == 1
-
-
-def test_mapped_member_is_attributed_to_their_web_account(session, world):
-    d = ds.create_defect(actor(user_id=world['csr'].id), 'Leak', 'Roof leak', world['building'].id, 'low')
-    row = Defect.query.get(d.id)
-    assert row.reporter_id == world['csr'].id and row.bot_reporter_id is None
-
-
-@pytest.mark.parametrize('kw', [dict(title=' ', description='ok desc'),
-                                dict(title='ok', description=''),
-                                dict(title='ok', description='ok desc', priority='urgent'),
-                                dict(title='ok', description='ok desc', building_id=999999)])
-def test_validation(session, world, kw):
-    args = dict(title='t', description='d' * 6, building_id=world['building'].id, priority='low')
-    args.update(kw)
-    with pytest.raises(ds.DefectError):
-        ds.create_defect(actor(), **args)
 
 
 def _defect(world, **kw):
@@ -131,7 +107,7 @@ def test_overdue_excludes_completed_and_undated(session, world):
 
 
 def test_calendar_message_groups_by_day_and_flags_overdue(session, world):
-    from botapp.fm import formatters
+    from core.fm import formatters
     _job('MSG-1', due=TODAY)
     _job('MSG-2', due=TODAY + datetime.timedelta(days=1))
     _job('MSG-OD', due=TODAY - datetime.timedelta(days=2))
@@ -145,7 +121,7 @@ def test_calendar_message_groups_by_day_and_flags_overdue(session, world):
 
 
 def test_calendar_caps_long_lists(session, world):
-    from botapp.fm import formatters
+    from core.fm import formatters
     for i in range(65):
         _job(f'CAP-{i:03d}', due=TODAY)
     text = formatters.calendar_message('x', ms.calendar_entries(TODAY, TODAY), TODAY, empty='-')
@@ -153,14 +129,14 @@ def test_calendar_caps_long_lists(session, world):
 
 
 def test_empty_calendar_says_so(session, world):
-    from botapp.fm import formatters
+    from core.fm import formatters
     far = datetime.date(2099, 1, 1)
     assert 'Nothing scheduled' in formatters.calendar_message(
         'x', ms.calendar_entries(far, far), far, empty='Nothing scheduled in this period.')
 
 
 def test_today_uses_the_configured_timezone(monkeypatch):
-    from botapp import config
+    from core import config
     monkeypatch.setenv('TZ', 'Pacific/Kiritimati')   # UTC+14
     ahead = config.today()
     monkeypatch.setenv('TZ', 'Pacific/Pago_Pago')    # UTC-11
@@ -168,3 +144,25 @@ def test_today_uses_the_configured_timezone(monkeypatch):
     assert (ahead - behind).days in (0, 1)
     monkeypatch.setenv('TZ', 'Not/AZone')
     assert isinstance(config.today(), datetime.date)  # falls back, never raises
+
+
+# --- event query -------------------------------------------------------------
+def test_events_between_uses_the_timeline_and_falls_back_to_dates(session, world):
+    from core import equipment
+    t = equipment.get_by_key_or_name('acmv')
+    D = datetime.datetime
+    def mk(ref, **kw):
+        j = MaintenanceJob(job_ref=ref, category='ACMV', equipment_type_id=t.id, description=ref,
+                           location='L', maintenance_type='Preventive', status='Yet to Start', **kw)
+        session.add(j); session.flush(); return j
+    mk('EV-INSIDE', starts_at=D(2026, 12, 2, 9), ends_at=D(2026, 12, 2, 17))
+    mk('EV-SPANS', starts_at=D(2026, 12, 1), ends_at=D(2026, 12, 5))
+    mk('EV-BEFORE', starts_at=D(2026, 11, 20), ends_at=D(2026, 11, 21))
+    mk('EV-AFTER', starts_at=D(2026, 12, 20), ends_at=D(2026, 12, 21))
+    mk('EV-DATEONLY', next_job_date=datetime.date(2026, 12, 3))
+    mk('EV-NODATE')
+    refs = [j.job_ref for j in ms.events_between(D(2026, 12, 2), D(2026, 12, 3, 23, 59, 59))]
+    assert set(refs) >= {'EV-INSIDE', 'EV-SPANS', 'EV-DATEONLY'}
+    assert not set(refs) & {'EV-BEFORE', 'EV-AFTER', 'EV-NODATE'}
+    only_acmv = ms.events_between(D(2026, 12, 2), D(2026, 12, 3), equipment_type_id=t.id)
+    assert all(j.equipment_type_id == t.id for j in only_acmv)

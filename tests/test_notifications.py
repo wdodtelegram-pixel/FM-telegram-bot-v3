@@ -1,7 +1,7 @@
 import asyncio
 
 from botapp import notifications as n
-from botapp.models import BotMember, BotNotificationLog, Defect
+from core.models import BotMember, BotNotificationLog, Defect
 
 
 def _member(session, user, chat=5001):

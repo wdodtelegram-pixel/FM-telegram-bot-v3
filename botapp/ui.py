@@ -9,7 +9,7 @@ modules stay short.
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 
-from botapp.fm import catalog
+from core.fm import catalog
 
 MAX_MESSAGE_LENGTH = 4096  # Telegram's hard limit
 
@@ -52,11 +52,29 @@ def category_keyboard():
         for key, meta in catalog.CATEGORIES.items()
     ]
     rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+    # The two guided flows lead every screen, so nobody needs to know a command.
+    rows.insert(0, [
+        InlineKeyboardButton("📅 Event query", callback_data="menu:events"),
+        InlineKeyboardButton("🛠 Report a defect", callback_data="menu:report"),
+    ])
     rows.append([
         InlineKeyboardButton("⏳ Outstanding", callback_data="pending"),
         InlineKeyboardButton("🔄 Refresh", callback_data="refresh"),
     ])
     return InlineKeyboardMarkup(rows)
+
+
+def request_access_keyboard():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🙋 Request access", callback_data="acc:request")]])
+
+
+def access_decision_keyboard(member_id):
+    """Approve / deny buttons shown to master control under a request."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Approve", callback_data=f"acc:ap:{member_id}"),
+         InlineKeyboardButton("⭐ Approve as master", callback_data=f"acc:ma:{member_id}")],
+        [InlineKeyboardButton("❌ Deny", callback_data=f"acc:dn:{member_id}")],
+    ])
 
 
 def buildings_keyboard(buildings):

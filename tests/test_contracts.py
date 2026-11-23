@@ -9,9 +9,9 @@ import os
 
 from sqlalchemy import inspect, text
 
-from botapp import db as dbmod
-from botapp.fm import catalog as bot_catalog
-from botapp.models import Base
+from core import db as dbmod
+from core.fm import catalog as bot_catalog
+from core.models import Base
 
 SHARED = {'users', 'buildings', 'defects', 'defect_comments', 'maintenance_jobs'}
 
