@@ -29,7 +29,8 @@ def list_visible_defects(actor, only_open=True, assigned_only=False, limit=25):
     handled explicitly: `assigned_technician_id == None` would compile to
     IS NULL and quietly return every unassigned defect.
     """
-    query = Defect.query.filter(Defect.deleted_at.is_(None))
+    # Reports added to an existing report (merged_into_id) are not listed on their own.
+    query = Defect.query.filter(Defect.deleted_at.is_(None), Defect.merged_into_id.is_(None))
 
     if assigned_only:
         if actor.user_id is None:

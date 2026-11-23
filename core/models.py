@@ -76,7 +76,7 @@ class Defect(Base):
         default='Open', nullable=False)
     priority = Column(_enum('low', 'medium', 'high', name='defect_priorities'), nullable=False)
     initial_report_image = Column(Text, nullable=True)
-    building_id = Column(Integer, ForeignKey('buildings.id'), nullable=False)
+    building_id = Column(Integer, ForeignKey('buildings.id'), nullable=True)
     # Exactly one of the next two is set (CHECK in the API's migration f6a7b8c9d0e1).
     reporter_id = Column(Integer, ForeignKey('users.id'), nullable=True)
     bot_reporter_id = Column(Integer, nullable=True)   # bot_members.id, deliberately no FK
