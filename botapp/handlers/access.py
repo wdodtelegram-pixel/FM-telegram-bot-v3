@@ -149,3 +149,37 @@ async def access_command(update, context, user):
         await update.effective_chat.send_message(
             formatters.access_request_notice(m), parse_mode=ParseMode.HTML,
             reply_markup=access_decision_keyboard(m['id']))
+
+
+async def claim_command(update, context):
+    """
+    /claim CODE -- the first person to send the setup code becomes master control.
+
+    Only meaningful on a fresh install (core/setup.py); once any master control
+    exists it refuses. The message is deleted afterwards: it holds a secret.
+    """
+    from core import config, setup
+    chat = update.effective_chat
+    user = update.effective_user
+    args = context.args or []
+    if not args:
+        await reply(update, "Send the setup code like this: <code>/claim ABCDE-FGHJK</code>\n\n"
+                            "You get the code when you run the launcher for the first time.")
+        return
+    try:
+        outcome = await run_db(setup.claim, chat.id, user.username if user else None,
+                               user.full_name if user else None, args[0])
+    except setup.SetupError as exc:
+        await reply(update, f"⚠️ {formatters._esc(str(exc))}")
+    except Exception as exc:
+        logger.exception('/claim failed')
+        await reply(update, formatters.error_message(exc))
+    else:
+        await reply(update,
+                    f"✅ <b>You are master control.</b>\n\nWebsite: {formatters._esc(config.website_url())}\n"
+                    f"Sign in with <code>{formatters._esc(outcome['email'])}</code> and the password you chose.\n\n"
+                    "Send /start to begin. People who message this bot can now ask you for access.")
+    try:
+        await update.message.delete()
+    except Exception:
+        logger.debug('Could not delete the /claim message', exc_info=True)

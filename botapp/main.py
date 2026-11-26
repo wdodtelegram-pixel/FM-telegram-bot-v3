@@ -201,6 +201,7 @@ def build_application(token, bot=None):
     application.add_handler(CommandHandler(["start", "help"], account.start_command))
     application.add_handler(CommandHandler("whoami", account.whoami_command))
     application.add_handler(CommandHandler("access", access_handlers.access_command))
+    application.add_handler(CommandHandler("claim", access_handlers.claim_command))   # first-run only; not in the menu
 
     # --- maintenance -------------------------------------------------------
     application.add_handler(CommandHandler("service", browse.service_command))
