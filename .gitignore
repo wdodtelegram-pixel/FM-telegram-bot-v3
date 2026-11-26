@@ -5,3 +5,6 @@ __pycache__/
 
 node_modules/
 web/build/
+
+# Release output (python tools/make_release.py)
+dist/
