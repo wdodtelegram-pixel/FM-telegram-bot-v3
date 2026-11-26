@@ -21,7 +21,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from core import access, config, equipment                                  # noqa: E402
+from core import access, config, equipment, setup                                  # noqa: E402
 from core import db as dbmod                                                # noqa: E402
 from core.models import (BotMember, Defect, DefectComment, MaintenanceJob,  # noqa: E402
                          User)
@@ -29,7 +29,7 @@ from botapp import admin, notifications                                     # no
 from tests.harness import Chat, make_app                                     # noqa: E402
 
 WIDTH = 64
-NAMES = {5001: 'Alex (master control)', 5002: 'Tess (end user)', 5003: 'Sam (new person)',
+NAMES = {5000: 'Sam (first run)', 5001: 'Alex (master control)', 5002: 'Tess (end user)', 5003: 'Sam (new person)',
          5004: 'Priya (end user)'}
 
 
@@ -81,7 +81,8 @@ class Scribe:
 
     def say(self, chat_id, text, multi=False):
         since = len(self.bot.log)
-        self.lines.append(f'{NAMES.get(chat_id, chat_id).split(" (")[0]} ▸ {text}' if multi else f'you ▸ {text}')
+        shown = text.replace(*self.fixed) if getattr(self, 'fixed', None) else text
+        self.lines.append(f'{NAMES.get(chat_id, chat_id).split(" (")[0]} ▸ {shown}' if multi else f'you ▸ {shown}')
         self.chat(chat_id).say(text)
         self._flush(since, chat_id, multi)
 
@@ -136,6 +137,24 @@ def build():
     web_tech = s.execute(__import__('sqlalchemy').text(
         "INSERT INTO users (name, email, password_hash, role) VALUES ('Priya Nair','priya@demo.invalid','x',"
         "CAST('technician' AS user_roles)) RETURNING id")).scalar()
+    app_bot = make_app()
+    out = {}
+
+    # --- first run: the one-time code creates the first master control -----------
+    real_code = setup.create_claim('owner@example.test', 'a-long-enough-password')
+    sc = fresh(app_bot)
+    sc.fixed = (real_code, 'ABCDE-FGHJK')           # the code is random; show a stable one
+    sc.say(5000, '/start')
+    sc.say(5000, '/claim WRONG-CODE0')
+    sc.say(5000, f'/claim {real_code}')
+    out['first_run'] = demo('First run: claiming master control',
+                            'On a fresh install nobody can approve you, so the launcher prints a one-time code '
+                            '(it also asks you for an email and password for the website). The first person to send it '
+                            'becomes master control. It works once, expires in 24 hours and locks after 10 wrong tries.', sc)
+    BotMember.query.filter_by(telegram_chat_id=5000).delete()
+    User.query.filter_by(email='owner@example.test').delete()
+    s.flush()
+
     admin.add_member(5001, 'Alex Admin', tier='master_control')
     admin.add_member(5002, 'Tess Tan', tier='end_user')
     admin.add_member(5004, 'Priya Nair', web_user=web_tech, tier='end_user')
@@ -145,9 +164,6 @@ def build():
     report_service.record_report(
         Actor(member_id=0, name='Mohan'), acmv.id, now - D(hours=5), 'Roof cooling tower 2',
         'Cooling tower fan is grinding loudly', specific_equipment='Cooling tower 2')
-
-    app_bot = make_app()
-    out = {}
 
     # --- access ------------------------------------------------------------
     sc = fresh(app_bot)
@@ -284,7 +300,7 @@ def build():
     return out
 
 
-ORDER = ['request', 'approve', 'menu', 'whoami', 'events_today', 'events_pick', 'report_scheduled', 'report_new',
+ORDER = ['first_run', 'request', 'approve', 'menu', 'whoami', 'events_today', 'events_pick', 'report_scheduled', 'report_new',
          'report_merge', 'report_cancel', 'service', 'acmv', 'tap', 'pending', 'myjobs', 'defects', 'calendar',
          'access_cmd', 'alert']
 

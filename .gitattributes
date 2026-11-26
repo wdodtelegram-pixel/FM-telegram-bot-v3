@@ -1,0 +1,5 @@
+# Launchers must keep the line endings their platform needs, whatever a checkout or zip does to them.
+*.command text eol=lf
+*.sh      text eol=lf
+*.bat     text eol=crlf
+*.ps1     text eol=crlf
