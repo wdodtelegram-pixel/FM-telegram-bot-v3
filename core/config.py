@@ -57,3 +57,8 @@ def _zone():
         return ZoneInfo(timezone())
     except Exception:
         return datetime.timezone.utc
+
+
+def website_url():
+    """Where master control signs in, shown in the bot's messages. Compose sets WEBSITE_URL."""
+    return (os.environ.get('WEBSITE_URL') or 'http://localhost:3000').strip()

@@ -12,6 +12,7 @@ import datetime
 import functools
 
 import jwt
+from sqlalchemy import func
 from flask import current_app, g, request
 
 from api.app import ApiError
@@ -25,7 +26,7 @@ def master_member_for_user(user_id):
 
 def authenticate(email, password):
     """The (user, member) for valid credentials of a master control member, else raises ApiError."""
-    user = User.query.filter(User.email.ilike((email or '').strip())).first()
+    user = User.query.filter(func.lower(User.email) == (email or '').strip().lower()).first()
     # The same message for every failure, so the form does not reveal which emails exist.
     bad = ApiError('Incorrect email or password.', 401)
     if user is None or not check_password(password or '', user.password_hash):

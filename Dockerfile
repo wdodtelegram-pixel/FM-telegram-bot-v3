@@ -13,6 +13,8 @@ COPY core ./core
 COPY botapp ./botapp
 COPY migrations ./migrations
 COPY docker/entrypoint.sh /entrypoint.sh
+# Built on Windows the file may arrive without its executable bit or with CRLF line endings.
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["/entrypoint.sh"]

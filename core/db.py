@@ -49,6 +49,11 @@ def init_engine(url=None):
     return _engine
 
 
+def is_bound():
+    """True once a bind is configured (the engine, or a test's own connection)."""
+    return Session.session_factory.kw.get('bind') is not None
+
+
 def get_engine():
     if _engine is None:
         init_engine()

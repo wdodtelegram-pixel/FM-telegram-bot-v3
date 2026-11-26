@@ -1,0 +1,47 @@
+FM CONTROL  -  start here
+=========================
+
+A Telegram bot and a website for building maintenance and defect reports.
+
+WHAT YOU NEED (once)
+  1. Docker Desktop (free):  https://www.docker.com/products/docker-desktop/
+     Install it, open it once, accept the terms.
+  2. A Telegram bot token. In Telegram, message @BotFather, send /newbot, pick a name
+     and a username ending in "bot", and copy the token it gives you.
+
+START IT
+  Mac:      double-click  Start-Mac.command
+  Windows:  double-click  Start-Windows.bat
+
+  The first time it asks for your bot token, creates your admin login, starts everything
+  (a few minutes the first time) and opens the website. You then send one code to your bot
+  in Telegram, and you are the administrator. After that, people who message the bot ask
+  for access and you approve them in Telegram or on the website.
+
+IF YOUR COMPUTER WARNS YOU (the launchers are not code-signed)
+  Mac:      "Start-Mac.command cannot be opened ... unidentified developer"
+            -> right-click (or Control-click) the file, choose Open, then Open.
+            or, once, in Terminal:   xattr -dr com.apple.quarantine <this folder>
+  Windows:  "Windows protected your PC"
+            -> click "More info", then "Run anyway".
+            If the zip came from the internet, right-click the zip > Properties > tick Unblock
+            BEFORE extracting.
+
+STOP IT
+  Mac:      double-click  Stop-Mac.command
+  Windows:  double-click  Stop-Windows.bat
+  Your data is kept. Start it again the same way (Start also installs updates).
+
+GOOD TO KNOW
+  * The bot answers only while this computer is on, awake and Docker Desktop is running.
+    In Docker Desktop > Settings, tick "Start Docker Desktop when you sign in" so it comes
+    back by itself after a restart. For a bot that must always answer, run it on an
+    always-on computer.
+  * Your settings are in the file named .env in this folder. It holds your bot token:
+    keep it private and do not share it.
+  * Your data lives in a Docker volume, not in this folder. Deleting this folder does not
+    delete it, and neither does Stop. To back it up:
+        docker compose exec db pg_dump -U postgres fm_control > backup.sql
+  * Something wrong?  Open a terminal in this folder and run:   docker compose logs
+
+Full documentation: README.md

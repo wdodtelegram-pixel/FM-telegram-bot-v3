@@ -11,6 +11,8 @@ Administration from the command line. This is how the allowlist is managed.
     python -m botapp.admin members
     python -m botapp.admin link-user CHAT_ID USER_ID     # or --clear
     python -m botapp.admin web-login CHAT_ID EMAIL       # give a master control member a website login
+    python -m botapp.admin first-run                     # fresh install: choose the first admin's login, get a code
+    python -m botapp.admin setup-status                  # exit 0 if a master control exists, else 1
     python -m botapp.admin import-csv FILE [--dry-run]   # load scheduled items/events
     python -m botapp.admin types                         # list equipment types
     python -m botapp.admin add-type KEY "Name" [--emoji X] [--blurb T]
@@ -30,7 +32,7 @@ import sys
 from sqlalchemy import func
 
 from core import db as dbmod
-from core import access, equipment, importer, passwords
+from core import access, equipment, importer, passwords, setup
 from core.db import Session, db
 from core.models import TIERS, BotMember, User
 
@@ -129,13 +131,16 @@ def main(argv=None):
     p = sub.add_parser('edit-type'); p.add_argument('key'); p.add_argument('--name')
     p.add_argument('--emoji'); p.add_argument('--blurb')
     g = p.add_mutually_exclusive_group(); g.add_argument('--disable', action='store_true'); g.add_argument('--enable', action='store_true')
+    sub.add_parser('first-run')
+    sub.add_parser('setup-status')
     p = sub.add_parser('web-login'); p.add_argument('chat_id', type=int); p.add_argument('email')
     p.add_argument('--reset', action='store_true', help='also reset the password of an existing user')
     p = sub.add_parser('link-user'); p.add_argument('chat_id', type=int)
     p.add_argument('user_id', type=int, nargs='?'); p.add_argument('--clear', action='store_true')
 
     args = parser.parse_args(argv)
-    dbmod.init_engine()
+    if not dbmod.is_bound():          # tests bind the session to their own transaction first
+        dbmod.init_engine()
 
     try:
         if args.cmd == 'add':
@@ -164,6 +169,26 @@ def main(argv=None):
             else:
                 access.set_tier(m.id, args.tier)
             print('done (the person is told by the bot within 30 seconds)')
+        elif args.cmd == 'setup-status':
+            done = setup.master_exists()
+            print('set up' if done else 'not set up')
+            raise SystemExit(0 if done else 1)
+        elif args.cmd == 'first-run':
+            if setup.master_exists():
+                print('This system is already set up. Sign in at the website; approve people there or in Telegram.')
+            else:
+                import getpass
+                email = input('Email for the website login: ').strip()
+                pw = getpass.getpass(f'Password ({passwords.MIN_LENGTH}+ characters, not shown): ')
+                if getpass.getpass('Again: ') != pw:
+                    raise AdminError('The two passwords did not match')
+                code = setup.create_claim(email, pw)
+                print('\n' + '=' * 56)
+                print('  Almost done. In Telegram, open YOUR bot and send:\n')
+                print(f'      /claim {code}\n')
+                print('  The first person to send it becomes master control.')
+                print('  The code works once and expires in 24 hours.')
+                print('=' * 56)
         elif args.cmd == 'web-login':
             import getpass
             pw = getpass.getpass('Password for the website login (not shown): ')
@@ -195,7 +220,7 @@ def main(argv=None):
             equipment.update_type(t.id, name=args.name, blurb=args.blurb, emoji=args.emoji,
                                   active=False if args.disable else (True if args.enable else None))
             print('updated')
-    except (AdminError, equipment.EquipmentError, access.AccessError) as exc:
+    except (AdminError, equipment.EquipmentError, access.AccessError, setup.SetupError) as exc:
         print(f'error: {exc}', file=sys.stderr)
         raise SystemExit(1)
     finally:

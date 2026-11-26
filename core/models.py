@@ -192,3 +192,17 @@ class BotNotificationLog(Base):
     delivered_at = Column(DateTime, nullable=True)
     last_error = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+
+class SetupClaim(Base):
+    """A pending first-run setup: hashes of a one-time code and of the first admin's password."""
+    __tablename__ = 'setup_claims'
+    id = Column(Integer, primary_key=True)
+    code_hash = Column(String(64), nullable=False)
+    email = Column(String, nullable=False)
+    password_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    attempts = Column(Integer, default=0, nullable=False)
+    claimed_at = Column(DateTime, nullable=True)
+    claimed_by_member_id = Column(Integer, nullable=True)

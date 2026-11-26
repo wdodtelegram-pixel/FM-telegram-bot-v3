@@ -1,14 +1,14 @@
-# The whole system, one command:
+# The whole system, one command (or, for most people, double-click Start-Mac.command / Start-Windows.bat):
 #
-#   cp .env.example .env        # fill in TELEGRAM_BOT_TOKEN and SECRET_KEY
-#   docker compose up --build
-#
-#   website   http://localhost:3000      (master control sign-in)
-#   bot       Telegram (long polling, no inbound port)
+#   docker compose up -d --wait
 #
 # Three deployables share ONE database and one set of migrations (migrations/):
-#   bot  -> core/ + botapp/      api -> core/ + api/      web -> static site behind nginx
+#   bot -> core/ + botapp/      api -> core/ + api/      web -> static site behind nginx
 # The `migrate` service runs the migrations once; everything else waits for it.
+#
+# Each service has an `image:` (prebuilt, published by .github/workflows/release.yml) AND a `build:`.
+# `docker compose pull` fetches the images; if they are not published, `docker compose build` builds
+# them from this source instead. Configuration comes from `.env` (the launcher writes it for you).
 
 services:
   db:
@@ -23,9 +23,11 @@ services:
       test: ["CMD-SHELL", "pg_isready -U postgres -d fm_control"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
+    restart: unless-stopped
 
   migrate:
+    image: ${FM_REGISTRY:-ghcr.io/wdodtelegram-pixel}/fm-control-bot:${FM_VERSION:-latest}
     build: .
     command: ["alembic", "-c", "migrations/alembic.ini", "upgrade", "head"]
     environment:
@@ -37,34 +39,50 @@ services:
     restart: "no"
 
   api:
+    image: ${FM_REGISTRY:-ghcr.io/wdodtelegram-pixel}/fm-control-api:${FM_VERSION:-latest}
     build:
       context: .
       dockerfile: api/Dockerfile
     environment:
       RUN_MIGRATIONS: "0"
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/fm_control
-      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env (a long random value)}
+      SECRET_KEY: "${SECRET_KEY:?SECRET_KEY is missing - run Start-Mac.command or Start-Windows.bat, or copy .env.example to .env}"
       TZ: ${TZ:-UTC}
     depends_on:
       migrate:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:5000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
   web:
+    image: ${FM_REGISTRY:-ghcr.io/wdodtelegram-pixel}/fm-control-web:${FM_VERSION:-latest}
     build: ./web
     ports:
-      - "3000:80"
+      - "${WEB_PORT:-3000}:80"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   bot:
+    image: ${FM_REGISTRY:-ghcr.io/wdodtelegram-pixel}/fm-control-bot:${FM_VERSION:-latest}
     build: .
     environment:
       RUN_MIGRATIONS: "0"
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/fm_control
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env (from @BotFather)}
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is missing - run Start-Mac.command or Start-Windows.bat, or copy .env.example to .env}"
       TZ: ${TZ:-UTC}
+      WEBSITE_URL: http://localhost:${WEB_PORT:-3000}
     depends_on:
       migrate:
         condition: service_completed_successfully

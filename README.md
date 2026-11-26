@@ -8,6 +8,32 @@ A facilities-management system with **two front ends on one PostgreSQL database*
 The bot never imports the web framework and the website never calls the bot; they share the database and the
 code in `core/`. Stop either and the other keeps working.
 
+## One-click download (Mac and Windows)
+
+1. Install **Docker Desktop** once (free): <https://www.docker.com/products/docker-desktop/>.
+2. Download **`FM-Control-<version>.zip`** from the [Releases page](../../releases) (or, before a release exists, GitHub's
+   *Code → Download ZIP*) and unzip it.
+3. Double-click **`Start-Mac.command`** (Mac) or **`Start-Windows.bat`** (Windows).
+
+The launcher checks Docker, asks for your Telegram bot token (from @BotFather), generates the secrets, starts everything,
+asks you to choose your admin email and password, prints a one-time code to send to your bot (`/claim CODE`), and opens the
+website. Run the same file again any time: it starts the app and installs updates. `Stop-Mac.command` / `Stop-Windows.bat`
+stop it and keep your data. A plain-language version is in [`START-HERE.txt`](START-HERE.txt).
+
+Good to know, honestly:
+* The launchers are **not code-signed**, so the first time your computer will warn you (Mac: right-click → *Open*;
+  Windows: *More info → Run anyway*). `START-HERE.txt` shows how.
+* It runs **on that computer**: the bot answers while the computer is on and Docker Desktop is running (tick *Start Docker
+  Desktop when you sign in*). For a bot that must always answer, use an always-on computer.
+* The launcher pulls prebuilt images when a release has published them, and otherwise **builds from the included source**
+  (a few minutes the first time).
+* The Mac launcher is tested against a fake Docker (`tests/test_launcher.py`). The Windows launcher (`launcher/start.ps1`)
+  follows the same steps but has **not been executed** in the build environment.
+
+*For maintainers:* `git tag v1.0.0 && git push origin v1.0.0` runs `.github/workflows/release.yml`, which publishes
+multi-architecture images to GitHub Container Registry and attaches the zip (`tools/make_release.py`) to a GitHub Release.
+`.github/workflows/ci.yml` runs the tests, builds the website and the images on every push.
+
 Contents: [Capabilities](#capabilities) · [Architecture](#system-architecture) · [Data](#data-three-stores) ·
 [Access flow](#access-flow) · [Guided flows](#guided-telegram-flows) · [Website](#the-website) ·
 [Demos](#demos-what-it-looks-like-in-telegram) · [Setup](#setup) · [Administration](#administration-cli) ·
@@ -178,6 +204,35 @@ fake Telegram against demo data. `you ▸` is what the person types or taps; box
 Regenerate with `--write` after changing any message.
 
 <!-- demos:start -->
+
+#### First run: claiming master control
+
+On a fresh install nobody can approve you, so the launcher prints a one-time code (it also asks you for an email and password for the website). The first person to send it becomes master control. It works once, expires in 24 hours and locks after 10 wrong tries.
+
+```text
+you ▸ /start
+  ┌─ bot ───────────────────────────────────────────────
+  │ 🔒 You do not have access to this bot yet.
+  │ 
+  │ Tap the button below to ask master control for access. You only
+  │    need to do this once.
+  └────────────────────────────────────────────────────
+  [ 🙋 Request access ]
+you ▸ /claim WRONG-CODE0
+  ┌─ bot ───────────────────────────────────────────────
+  │ ⚠️ That code is not right (9 attempts left).
+  └────────────────────────────────────────────────────
+you ▸ /claim ABCDE-FGHJK
+  ┌─ bot ───────────────────────────────────────────────
+  │ ✅ You are master control.
+  │ 
+  │ Website: http://localhost:3000
+  │ Sign in with owner@example.test and the password you chose.
+  │ 
+  │ Send /start to begin. People who message this bot can now ask
+  │    you for access.
+  └────────────────────────────────────────────────────
+```
 
 #### Asking for access (once)
 
@@ -358,7 +413,7 @@ you ▸ /whoami
   │ 
   │    Name: Priya Nair
   │    Access: end user (Telegram)
-  │    Web account: linked (#1451) — /myjobs, /mydefects and
+  │    Web account: linked (#1878) — /myjobs, /mydefects and
   │    assignment alerts work
   │ 
   │ Access is managed by master control.
@@ -393,11 +448,11 @@ you ▸ /events
   [ ✖️ Cancel ]
 you ▸ (taps Today)
   ┌─ bot (edited in place) ─────────────────────────────
-  │ 📅 Today · Mon 23 Nov 2026
+  │ 📅 Today · Thu 26 Nov 2026
   │ 
   │ ❄️ ACMV
   │    🟡 Replace chiller filters — Level 3 Plant Room ACMV-001
-  │       🕒 Mon 23 Nov 09:00–17:00
+  │       🕒 Thu 26 Nov 09:00–17:00
   └────────────────────────────────────────────────────
   [ 📅 New query ]  [ 🛠 Report a defect ]
 ```
@@ -432,13 +487,13 @@ you ▸ whenever
   │ Try 25 Nov, 25/11/2026 or 25 Nov - 30 Nov.
   └────────────────────────────────────────────────────
   [ ✖️ Cancel ]
-you ▸ 26 Nov
+you ▸ 29 Nov
   ┌─ bot ───────────────────────────────────────────────
-  │ 📅 Thu 26 Nov 2026
+  │ 📅 Sun 29 Nov 2026
   │ 
   │ ▫️ Event
   │    ⚪ Annual fire drill — Main lobby EVT-001
-  │       🕒 Thu 26 Nov 10:00–11:00
+  │       🕒 Sun 29 Nov 10:00–11:00
   └────────────────────────────────────────────────────
   [ 📅 New query ]  [ 🛠 Report a defect ]
 ```
@@ -506,7 +561,7 @@ you ▸ (taps Yes, this one)
   ┌─ bot (edited in place) ─────────────────────────────
   │ 🔍 Ready to submit
   │ 
-  │    🕒 When: Mon 23 Nov 2026 06:37
+  │    🕒 When: Thu 26 Nov 2026 02:28
   │    🔧 Equipment type: ❄️ ACMV
   │    📍 Location: Level 3 plant room
   │ 
@@ -521,7 +576,7 @@ you ▸ (taps Submit)
   ┌─ bot (edited in place) ─────────────────────────────
   │ ✅ Recorded against scheduled item ACMV-001.
   │ 
-  │ 🛠 Chiller filters look blocked  #863
+  │ 🛠 Chiller filters look blocked  #1059
   │ 
   │ Thank you. It has been logged.
   └────────────────────────────────────────────────────
@@ -605,7 +660,7 @@ you ▸ (taps Skip)
   ┌─ bot (edited in place) ─────────────────────────────
   │ 🔍 Ready to submit
   │ 
-  │    🕒 When: Mon 23 Nov 2026 03:37
+  │    🕒 When: Wed 25 Nov 2026 23:28
   │    🔧 Equipment type: 🚰 Plumbing & Sanitary
   │    📍 Location: Basement 2 pump room
   │    ⚙️ Equipment: Sump pump 3
@@ -622,7 +677,7 @@ you ▸ (taps Submit)
   ┌─ bot (edited in place) ─────────────────────────────
   │ ✅ New report created.
   │ 
-  │ 🛠 Water dripping from the main valve  #864
+  │ 🛠 Water dripping from the main valve  #1060
   │ 
   │ Thank you. It has been logged.
   └────────────────────────────────────────────────────
@@ -678,7 +733,7 @@ you ▸ Cooling tower fan grinding again
   │ 🔎 Possible match 1 of 2  (92% similar)
   │ 
   │ 🛠 Earlier unscheduled report
-  │ #862: Cooling tower fan is grinding loudly (Roof cooling tower
+  │ #1058: Cooling tower fan is grinding loudly (Roof cooling tower
   │    2)
   │ 
   │ Why: same equipment type · reported around the same time ·
@@ -694,22 +749,22 @@ you ▸ (taps Yes, this one)
   ┌─ bot (edited in place) ─────────────────────────────
   │ 🔍 Ready to submit
   │ 
-  │    🕒 When: Mon 23 Nov 2026 06:37
+  │    🕒 When: Thu 26 Nov 2026 02:28
   │    🔧 Equipment type: ❄️ ACMV
   │    📍 Location: cooling tower 2 on the roof
   │ 
   │ Cooling tower fan grinding again
   │ 
-  │ Added to the earlier report #862: Cooling tower fan is grinding
-  │    loudly (Roof cooling tower 2).
+  │ Added to the earlier report #1058: Cooling tower fan is
+  │    grinding loudly (Roof cooling tower 2).
   └────────────────────────────────────────────────────
   [ ✅ Submit ]
   [ ⬅️ Back ]  [ ✖️ Cancel ]
 you ▸ (taps Submit)
   ┌─ bot (edited in place) ─────────────────────────────
-  │ ✅ Added to the earlier report #862.
+  │ ✅ Added to the earlier report #1058.
   │ 
-  │ 🛠 Cooling tower fan grinding again  #865
+  │ 🛠 Cooling tower fan grinding again  #1061
   │ 
   │ Thank you. It has been logged.
   └────────────────────────────────────────────────────
@@ -894,7 +949,7 @@ you ▸ /pending
   │    November 2026
   │ 
   │ ⚡ Electrical
-  │    ⚪ Thermal scan of main switchboard — MSB room — due Week 3
+  │    ⚪ Thermal scan of main switchboard — MSB room — due Week 4
   │    November 2026
   │ 
   │ 5 outstanding job(s) in total.
@@ -940,20 +995,20 @@ you ▸ /defects
   ┌─ bot ───────────────────────────────────────────────
   │ 🛠 Open Defects
   │ 
-  │ 🔴 Cooling tower fan is grinding loudly  #862
+  │ 🔴 Cooling tower fan is grinding loudly  #1058
   │    📊 Status: Open
   │    🔸 Priority: medium
-  │    🗓 Reported: 23 Nov 2026
+  │    🗓 Reported: 26 Nov 2026
   │ 
-  │ 🔴 Water dripping from the main valve  #864
+  │ 🔴 Water dripping from the main valve  #1060
   │    📊 Status: Open
   │    🔺 Priority: high
-  │    🗓 Reported: 23 Nov 2026
+  │    🗓 Reported: 26 Nov 2026
   │ 
-  │ 🔴 Chiller filters look blocked  #863
+  │ 🔴 Chiller filters look blocked  #1059
   │    📊 Status: Open
   │    🔸 Priority: medium
-  │    🗓 Reported: 23 Nov 2026
+  │    🗓 Reported: 26 Nov 2026
   │ 
   │ 3 defect(s).
   └────────────────────────────────────────────────────
@@ -968,16 +1023,16 @@ you ▸ /calendar
   ┌─ bot ───────────────────────────────────────────────
   │ 📅 Next 7 days
   │ 
-  │ Mon 23 Nov 2026 (today)
+  │ Thu 26 Nov 2026 (today)
   │    🟡 Replace chiller filters — Level 3 Plant Room ACMV-001 · due
   │ 
-  │ Tue 24 Nov 2026 (tomorrow)
+  │ Fri 27 Nov 2026 (tomorrow)
   │    ⚪ Quarterly lift inspection — Block A lifts LIFT-001 · due
   │ 
-  │ Wed 25 Nov 2026
+  │ Sat 28 Nov 2026
   │    ⚪ Cooling tower belt check — Roof ACMV-002 · due
   │ 
-  │ Thu 26 Nov 2026
+  │ Sun 29 Nov 2026
   │    ⚪ Annual fire drill — Main lobby EVT-001 · due
   │ 
   │ ⚠️ 1 overdue — see /overdue
@@ -991,7 +1046,7 @@ you ▸ /overdue
   ┌─ bot ───────────────────────────────────────────────
   │ 📅 Overdue maintenance
   │ 
-  │ Fri 20 Nov 2026 (3 days overdue)
+  │ Mon 23 Nov 2026 (3 days overdue)
   │    ⚪ Thermal scan of main switchboard — MSB room ELEC-001 ·
   │    overdue
   └────────────────────────────────────────────────────
@@ -1029,11 +1084,11 @@ Sent to a linked member when a defect is assigned to their web account. Checked 
   ┌─ bot → Priya ───────────────────────────────────────
   │ 🔔 A defect has been assigned to you.
   │ 
-  │ 🔴 Water leak at B2 pump room  #866
+  │ 🔴 Water leak at B2 pump room  #1062
   │    📊 Status: Open
   │    🔺 Priority: high
   │    👷 Technician: Priya Nair
-  │    🗓 Reported: 23 Nov 2026
+  │    🗓 Reported: 26 Nov 2026
   │ 
   │ Steady drip from the main valve.
   │ 
@@ -1047,7 +1102,10 @@ Sent to a linked member when a defect is assigned to their web account. Checked 
 
 ## Setup
 
-### A. Everything with Docker Compose (recommended)
+### A. The launcher (recommended)
+See [One-click download](#one-click-download-mac-and-windows). It does everything below for you.
+
+### B. Everything with Docker Compose by hand
 
 ```bash
 cp .env.example .env        # set TELEGRAM_BOT_TOKEN (from @BotFather) and SECRET_KEY (long random value)
@@ -1055,7 +1113,7 @@ docker compose up --build   # db + migrate + api + web + bot
 ```
 Website: <http://localhost:3000>. Then create the first master control (below).
 
-### B. Without Docker
+### C. Without Docker
 Prerequisites: Python 3.11+, PostgreSQL, Node 20+ (website only).
 
 ```bash
@@ -1069,6 +1127,11 @@ cd web && npm install && npm run dev                 # the website  (separate te
 ```
 
 ### First master control (once)
+**With the launcher this is automatic.** By hand, the safest way is the setup code:
+`python -m botapp.admin first-run` asks for an email and password and prints a one-time code; send `/claim CODE` to your bot
+and you are master control with a website login. The code is single-use, expires in 24 hours, locks after 10 wrong guesses,
+only hashes are stored, and it stops working the moment any master control exists. Or, the manual way:
+
 1. Send `/start` to your bot; it offers *Request access*. Tap it (this also tells you your Telegram ID).
 2. On the host: `python -m botapp.admin requests` then `python -m botapp.admin approve <TELEGRAM_ID> --master`
    (or in one step: `python -m botapp.admin add <TELEGRAM_ID> "Your Name" --master`).
@@ -1090,6 +1153,8 @@ with their line number and reason; good rows still load. (There is no JSON-schem
 | `DATABASE_URL` | all | the shared PostgreSQL database (Compose sets it for you) |
 | `SECRET_KEY` | API | signs website logins |
 | `TZ` | bot, API | decides what "today" means (e.g. `Asia/Singapore`) |
+| `WEB_PORT` | Compose | website port (default 3000; the launcher picks another if it is busy) |
+| `FM_REGISTRY`, `FM_VERSION` | Compose | where to pull the prebuilt images from, and which version (defaults: this repo's owner, `latest`) |
 | `JWT_HOURS` | API | website session length (default 12) |
 
 ---
@@ -1100,6 +1165,8 @@ with their line number and reason; good rows still load. (There is no JSON-schem
 
 | Command | Does |
 |---|---|
+| `first-run` | fresh install: choose the first admin's email and password; prints the one-time `/claim` code |
+| `setup-status` | exit code 0 if a master control exists, 1 if not |
 | `requests` / `members` | list pending requests / everyone |
 | `approve CHAT_ID [--master]`, `deny`, `revoke`, `set-tier CHAT_ID end_user\|master_control` | decide (the person is told by the bot) |
 | `add CHAT_ID "Name" [--master] [--web-user ID]` | add someone already approved |
@@ -1135,6 +1202,10 @@ on both an empty and an existing database.
 | Someone approved on the website did not get a message | the bot delivers it within ~30 s; the bot must be running |
 | `/myjobs` empty for someone with jobs | the member is not linked to a web account |
 | Two bots fighting | one polling process per token |
+| Launcher: "Docker is not installed" / "not running" | install Docker Desktop and open it once; the launcher then waits for it |
+| Launcher: "cannot be opened ... unidentified developer" (Mac) | right-click the file → *Open*, or `xattr -dr com.apple.quarantine <folder>` |
+| Launcher: "Windows protected your PC" | *More info → Run anyway* (right-click the zip → Properties → *Unblock* before extracting avoids it) |
+| "port is already allocated" | change `WEB_PORT` in `.env`, then run the launcher again |
 
 ## Known limitations
 
@@ -1144,7 +1215,8 @@ on both an empty and an existing database.
 * Photos: the largest Telegram size at or under 400 KB, otherwise the smallest; no resizing.
 * The website monitors; it does not edit or delete scheduled items or reports (status changes happen elsewhere).
 * A command for an equipment type added while the bot is running works (`/<key>`), and its menu entry appears within a minute.
-* Docker Compose is provided and validated (`docker compose config`) but was not run in the build environment (no Docker daemon there).
+* Docker Compose and the Dockerfiles are validated (`docker compose config`) and the Mac launcher is tested against a fake Docker, but containers were **not run** in the build environment (no Docker daemon) and the Windows launcher was **not executed**. Try it on each platform before relying on it.
+* The launchers are not code-signed or notarised, so Mac and Windows show a first-run warning.
 
 ## Ideas (not built)
 Keep messages sent while the bot was down · scheduled digests (morning / midday / end of day) and alerts for **all** members
